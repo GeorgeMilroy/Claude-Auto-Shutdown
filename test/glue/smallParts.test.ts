@@ -80,7 +80,7 @@ describe('remoteLabel', () => {
 });
 
 describe('realmOf', () => {
-  const storage = 'C:\\Users\\me\\AppData\\Roaming\\Code\\User\\globalStorage\\georgemilroy.claude-auto-shutdown';
+  const storage = 'C:\\Users\\me\\AppData\\Roaming\\Code\\User\\globalStorage\\mecorelabs.claude-auto-shutdown';
 
   it('is the first 16 hex digits of the SHA-256 of the settings location', () => {
     expect(realmOf(storage)).toBe(createHash('sha256').update(storage).digest('hex').slice(0, 16));

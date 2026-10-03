@@ -3,7 +3,7 @@
   "displayName": "Claude Auto Shutdown",
   "description": "Shut down, sleep, hibernate or lock your computer only after every Claude Code session has really finished working.",
   "version": "0.1.0",
-  "publisher": "georgemilroy",
+  "publisher": "MECoreLabs",
   "license": "MIT",
   "icon": "resources/icon.png",
   "galleryBanner": {

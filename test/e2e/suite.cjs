@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const vscode = require('vscode');
 
-const EXTENSION_ID = 'georgemilroy.claude-auto-shutdown';
+const EXTENSION_ID = 'MECoreLabs.claude-auto-shutdown';
 const fixture = JSON.parse(process.env.CAS_E2E_FIXTURE || '{}');
 const steps = [];
 

@@ -6,7 +6,7 @@ The rule underneath everything: **not knowing is never permission to shut down.*
 
 ## Quick start (60 seconds)
 
-1. Install the extension: `code --install-extension claude-auto-shutdown-0.1.0.vsix`, or build it yourself (see [Development](#development)).
+1. Install **Claude Auto Shutdown** from the Extensions view, or install a downloaded package with `code --install-extension claude-auto-shutdown-0.1.0.vsix`, or build it yourself (see [Development](#development)).
 2. Click the eye icon in the activity bar. The dashboard lists the Claude Code sessions found on this PC and says whether each one is working.
 3. Open **Help** at the bottom of the dashboard and pick **Preview the countdown**. This is a 20 second demo of the warning. Press `Esc` to cancel it.
 4. Leave **Test run** selected and press **Start test run**. A test run does everything the real thing does, but ends with a message instead of the action. Nothing turns off.

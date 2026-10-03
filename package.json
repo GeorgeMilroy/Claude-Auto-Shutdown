@@ -6,6 +6,19 @@
   "publisher": "georgemilroy",
   "license": "MIT",
   "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#212120",
+    "theme": "dark"
+  },
+  "preview": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GeorgeMilroy/Claude-Auto-Shutdown.git"
+  },
+  "bugs": {
+    "url": "https://github.com/GeorgeMilroy/Claude-Auto-Shutdown/issues"
+  },
+  "homepage": "https://github.com/GeorgeMilroy/Claude-Auto-Shutdown#readme",
   "private": true,
   "engines": {
     "vscode": "^1.90.0"

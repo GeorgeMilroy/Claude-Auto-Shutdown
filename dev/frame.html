@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- As strict as the policy the extension sets in VS Code: no inline script, no inline style
+         element or attribute, no eval. A violation shows up in this page's console. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:"
+    />
+    <title>Claude Auto Shutdown: dashboard</title>
+    <link rel="stylesheet" href="/vscode-default.css" />
+    <link rel="stylesheet" href="/webview/codicon.css" />
+    <link rel="stylesheet" href="/webview/main.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- frame.js stands in for VS Code: it defines acquireVsCodeApi and applies the theme. -->
+    <script src="/frame.js"></script>
+    <script src="/webview/main.js"></script>
+  </body>
+</html>

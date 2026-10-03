@@ -1,0 +1,27 @@
+{
+  // The Extension Development Host started from here can never run a power action
+  // (CLAUDE_AUTOSHUTDOWN_NO_POWER=1), and it keeps its own state folder and leader endpoint, so
+  // it does not join the windows of an installed copy of the extension.
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      "preLaunchTask": "build",
+      "env": {
+        "CLAUDE_AUTOSHUTDOWN_NO_POWER": "1",
+        "CLAUDE_AUTOSHUTDOWN_HOME": "${workspaceFolder}/.vscode-test/state"
+      },
+      "windows": {
+        "env": {
+          "CLAUDE_AUTOSHUTDOWN_NO_POWER": "1",
+          "CLAUDE_AUTOSHUTDOWN_HOME": "${workspaceFolder}\\.vscode-test\\state",
+          "CLAUDE_AUTOSHUTDOWN_ENDPOINT": "\\\\.\\pipe\\claude-auto-shutdown-dev"
+        }
+      }
+    }
+  ]
+}

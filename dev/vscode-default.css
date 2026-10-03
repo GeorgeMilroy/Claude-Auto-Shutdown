@@ -1,0 +1,64 @@
+/*
+ * The stylesheet VS Code injects into every webview before the extension's own (its
+ * "_defaultStyles"), reproduced for the harness so the dashboard is seen on top of the same
+ * defaults - most importantly the 20 px body padding and the link / focus rules it must override.
+ */
+
+html {
+  scrollbar-color: var(--vscode-scrollbarSlider-background) var(--vscode-editor-background);
+}
+
+body {
+  overscroll-behavior-x: none;
+  background-color: transparent;
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
+  font-weight: var(--vscode-font-weight);
+  font-size: var(--vscode-font-size);
+  margin: 0;
+  padding: 0 20px;
+}
+
+img,
+video {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+a,
+a code {
+  color: var(--vscode-textLink-foreground);
+}
+
+a:hover {
+  color: var(--vscode-textLink-activeForeground);
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 1px solid -webkit-focus-ring-color;
+  outline-offset: -1px;
+}
+
+code {
+  font-family: var(--monaco-monospace-font);
+  color: var(--vscode-textPreformat-foreground);
+  background-color: var(--vscode-textPreformat-background);
+  padding: 1px 3px;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-corner {
+  background-color: var(--vscode-editor-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--vscode-scrollbarSlider-background);
+}

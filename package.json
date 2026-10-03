@@ -1,0 +1,462 @@
+{
+  "name": "claude-auto-shutdown",
+  "displayName": "Claude Auto Shutdown",
+  "description": "Shut down, sleep, hibernate or lock your computer only after every Claude Code session has really finished working.",
+  "version": "0.1.0",
+  "publisher": "georgemilroy",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude code",
+    "shutdown",
+    "sleep",
+    "ai agents",
+    "power"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeAutoShutdown.open",
+        "title": "Open Dashboard",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.openInEditor",
+        "title": "Open Dashboard in Editor",
+        "category": "Claude Auto Shutdown",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "claudeAutoShutdown.start",
+        "title": "Start Watching…",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.stop",
+        "title": "Stop Watching",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.cancelCountdown",
+        "title": "Cancel Countdown: Keep This PC On",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.preview",
+        "title": "Preview the Countdown (20 s)",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.refresh",
+        "title": "Check Again",
+        "category": "Claude Auto Shutdown",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "claudeAutoShutdown.showLog",
+        "title": "Show Log",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.openLogFile",
+        "title": "Open Log File",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.lastRun",
+        "title": "What Happened Last Time?",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.revealStop",
+        "title": "Reveal Emergency Stop Folder",
+        "category": "Claude Auto Shutdown"
+      },
+      {
+        "command": "claudeAutoShutdown.openSettings",
+        "title": "Open Settings",
+        "category": "Claude Auto Shutdown",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "claudeAutoShutdown.help",
+        "title": "Get Started",
+        "category": "Claude Auto Shutdown"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claudeAutoShutdown",
+          "title": "Auto Shutdown",
+          "icon": "resources/activity-bar.svg"
+        }
+      ]
+    },
+    "views": {
+      "claudeAutoShutdown": [
+        {
+          "type": "webview",
+          "id": "claudeAutoShutdown.dashboard",
+          "name": "Dashboard",
+          "contextualTitle": "Claude Auto Shutdown",
+          "icon": "resources/activity-bar.svg"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "claudeAutoShutdown.start",
+          "when": "!claudeAutoShutdown.watching"
+        },
+        {
+          "command": "claudeAutoShutdown.stop",
+          "when": "claudeAutoShutdown.watching"
+        },
+        {
+          "command": "claudeAutoShutdown.cancelCountdown",
+          "when": "claudeAutoShutdown.countdownActive"
+        },
+        {
+          "command": "claudeAutoShutdown.preview",
+          "when": "!claudeAutoShutdown.watching"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "claudeAutoShutdown.refresh",
+          "when": "view == claudeAutoShutdown.dashboard",
+          "group": "navigation@1"
+        },
+        {
+          "command": "claudeAutoShutdown.openInEditor",
+          "when": "view == claudeAutoShutdown.dashboard",
+          "group": "navigation@2"
+        },
+        {
+          "command": "claudeAutoShutdown.openSettings",
+          "when": "view == claudeAutoShutdown.dashboard",
+          "group": "navigation@3"
+        },
+        {
+          "command": "claudeAutoShutdown.showLog",
+          "when": "view == claudeAutoShutdown.dashboard",
+          "group": "1_more@1"
+        },
+        {
+          "command": "claudeAutoShutdown.lastRun",
+          "when": "view == claudeAutoShutdown.dashboard",
+          "group": "1_more@2"
+        },
+        {
+          "command": "claudeAutoShutdown.preview",
+          "when": "view == claudeAutoShutdown.dashboard && !claudeAutoShutdown.watching",
+          "group": "1_more@3"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "claudeAutoShutdown.cancelCountdownWithEscape",
+        "key": "escape",
+        "when": "claudeAutoShutdown.countdownActive"
+      }
+    ],
+    "configurationDefaults": {
+      "terminal.integrated.commandsToSkipShell": [
+        "claudeAutoShutdown.cancelCountdownWithEscape"
+      ]
+    },
+    "configuration": {
+      "title": "Claude Auto Shutdown",
+      "properties": {
+        "claudeAutoShutdown.action": {
+          "order": 0,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "string",
+          "enum": [
+            "shutdown",
+            "hibernate",
+            "sleep",
+            "lock",
+            "notify"
+          ],
+          "enumItemLabels": [
+            "Shut down",
+            "Hibernate",
+            "Sleep",
+            "Lock",
+            "Just notify me"
+          ],
+          "enumDescriptions": [
+            "Shut this PC down.",
+            "Hibernate: save everything to disk and power off. Not offered on macOS, which chooses between sleep and hibernate itself.",
+            "Put this PC to sleep.",
+            "Lock the screen. Everything keeps running.",
+            "Only show a message. Nothing ever turns off."
+          ],
+          "default": "shutdown",
+          "markdownDescription": "What happens to **this PC** once every Claude Code session has finished."
+        },
+        "claudeAutoShutdown.testMode": {
+          "order": 1,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "**Test run.** Everything runs as normal, but instead of the action you get a message. Nothing turns off. Turn this off to act for real; you are asked to confirm every time you start watching."
+        },
+        "claudeAutoShutdown.quietSeconds": {
+          "order": 2,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "integer",
+          "default": 300,
+          "minimum": 30,
+          "maximum": 3600,
+          "markdownDescription": "How long, in seconds, every session must have written nothing before it counts as finished. A session in the middle of a turn never counts as finished, however long it has been silent."
+        },
+        "claudeAutoShutdown.pollSeconds": {
+          "order": 3,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "integer",
+          "default": 10,
+          "minimum": 5,
+          "maximum": 60,
+          "markdownDescription": "Seconds between checks."
+        },
+        "claudeAutoShutdown.requiredPolls": {
+          "order": 4,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "integer",
+          "default": 3,
+          "minimum": 2,
+          "maximum": 10,
+          "markdownDescription": "Checks in a row that must all agree before the countdown starts."
+        },
+        "claudeAutoShutdown.countdownSeconds": {
+          "order": 5,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "integer",
+          "default": 90,
+          "minimum": 15,
+          "maximum": 600,
+          "markdownDescription": "Length, in seconds, of the warning before the action. Cancel it with `Esc`, the button in the dashboard, the status bar, the notification or the on-screen warning."
+        },
+        "claudeAutoShutdown.requireUserIdle": {
+          "order": 6,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "**Require me to be away.** Only act when you haven't touched the mouse or keyboard for the time set in `#claudeAutoShutdown.userIdleSeconds#`. If this can't be measured, this PC stays on."
+        },
+        "claudeAutoShutdown.userIdleSeconds": {
+          "order": 7,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "integer",
+          "default": 600,
+          "minimum": 30,
+          "maximum": 7200,
+          "markdownDescription": "How long, in seconds, you must have been away. Used when `#claudeAutoShutdown.requireUserIdle#` is on."
+        },
+        "claudeAutoShutdown.allowWhenNoSessions": {
+          "order": 8,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Allow the action when no Claude Code session was ever seen. Off: wait for one to appear and finish."
+        },
+        "claudeAutoShutdown.forceCloseApps": {
+          "order": 9,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Shut down only: close other apps without asking. **Unsaved work in them is lost.** Off: one app with an unsaved document can keep this PC on."
+        },
+        "claudeAutoShutdown.guardProcesses": {
+          "order": 10,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "markdownDescription": "Keep-on list: programs that keep this PC on while they run. Each entry is matched against the process names as plain text (`ffmpeg`), as a wildcard (`render*`) or as a regular expression. Use it for work Claude did not start, such as a build, a download or a render."
+        },
+        "claudeAutoShutdown.watchOnStartup": {
+          "order": 11,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Start watching when VS Code starts, using the mode in `#claudeAutoShutdown.testMode#`. For real, a warning appears in every window."
+        },
+        "claudeAutoShutdown.countdownSound": {
+          "order": 12,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Play a sound when the countdown starts and in its last 5 seconds. Needs `#claudeAutoShutdown.countdownAlert#`."
+        },
+        "claudeAutoShutdown.countdownAlert": {
+          "order": 13,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show a warning outside VS Code during the countdown. On Windows it is a small always-on-top window with a Cancel button. On Linux and macOS it is a desktop notification without one."
+        },
+        "claudeAutoShutdown.keepAwake": {
+          "order": 14,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "While watching, stop this PC from going to sleep by itself before Claude has finished."
+        },
+        "claudeAutoShutdown.waitForChildProcesses": {
+          "order": 15,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Stay on while a command started by a Claude session (a build, a test run, a download) is still using the CPU or the disk, even after the turn has ended."
+        },
+        "claudeAutoShutdown.extraClaudeDirs": {
+          "order": 16,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "markdownDescription": "Extra Claude config folders to watch, besides `~/.claude` and `$CLAUDE_CONFIG_DIR`. A folder listed here that can't be read keeps this PC on."
+        },
+        "claudeAutoShutdown.scanWsl": {
+          "order": 17,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Windows: also look for Claude Code sessions inside running WSL distributions. They are read through `\\\\wsl.localhost`."
+        },
+        "claudeAutoShutdown.showStatusBar": {
+          "order": 18,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show the status bar item. A running countdown is always shown there."
+        }
+      }
+    },
+    "walkthroughs": [
+      {
+        "id": "getStarted",
+        "title": "Get started with Claude Auto Shutdown",
+        "description": "See what the extension sees, try the countdown, do a test run, then use it for real.",
+        "steps": [
+          {
+            "id": "see",
+            "title": "See what it sees",
+            "description": "Open the dashboard: every Claude session on this PC and whether it's working.\n[Open Dashboard](command:claudeAutoShutdown.open)",
+            "media": {
+              "markdown": "resources/walkthrough/see.md"
+            },
+            "completionEvents": [
+              "onView:claudeAutoShutdown.dashboard"
+            ]
+          },
+          {
+            "id": "preview",
+            "title": "Preview the countdown",
+            "description": "A 20 s demo. Cancel it with Esc, the button or the status bar.\n[Preview the Countdown](command:claudeAutoShutdown.preview)",
+            "media": {
+              "markdown": "resources/walkthrough/preview.md"
+            },
+            "completionEvents": [
+              "onContext:claudeAutoShutdown.previewDone"
+            ]
+          },
+          {
+            "id": "testRun",
+            "title": "Do a test run",
+            "description": "Takes as long as the real thing; walk away.\n[Start Watching…](command:claudeAutoShutdown.start)",
+            "media": {
+              "markdown": "resources/walkthrough/test-run.md"
+            },
+            "completionEvents": [
+              "onContext:claudeAutoShutdown.testPassed"
+            ]
+          },
+          {
+            "id": "forReal",
+            "title": "Use it for real, and know the brake",
+            "description": "Pick For real. Creating a file named STOP in ~/.claude-auto-shutdown blocks everything.\n[Reveal Emergency Stop Folder](command:claudeAutoShutdown.revealStop)",
+            "media": {
+              "markdown": "resources/walkthrough/for-real.md"
+            },
+            "completionEvents": [
+              "onCommand:claudeAutoShutdown.revealStop"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "vscode:prepublish": "node scripts/build.mjs --production",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "~1.90.0",
+    "@vscode/codicons": "^0.0.36",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.25.0",
+    "preact": "^10.25.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

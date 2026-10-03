@@ -1,0 +1,999 @@
+/*
+ * Claude Auto Shutdown - dashboard styles.
+ *
+ * Colours come ONLY from VS Code theme variables (--vscode-*). The aliases below hold the fallback
+ * chains in one place; nothing else in this file names a colour. The body is transparent, so the
+ * view takes the colour of whatever hosts it (side bar, panel, editor).
+ *
+ * Spacing is on a 4 px grid. Every control is at least 28 px high, session rows 44 px.
+ * A status is never told by colour alone: each icon has its own shape and sits next to words.
+ */
+
+body {
+  /* text */
+  --cas-muted: var(--vscode-descriptionForeground, color-mix(in srgb, var(--vscode-foreground) 70%, transparent));
+  --cas-disabled: var(--vscode-disabledForeground, color-mix(in srgb, var(--vscode-foreground) 50%, transparent));
+  --cas-link: var(--vscode-textLink-foreground);
+  --cas-link-active: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
+  /* surfaces */
+  --cas-divider: var(
+    --vscode-sideBarSectionHeader-border,
+    var(--vscode-widget-border, var(--vscode-contrastBorder, color-mix(in srgb, var(--vscode-foreground) 20%, transparent)))
+  );
+  --cas-card: var(--vscode-editorWidget-background, transparent);
+  --cas-track: color-mix(in srgb, var(--vscode-foreground) 20%, transparent);
+  /* status */
+  --cas-passed: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+  --cas-waiting: var(--vscode-testing-iconQueued, var(--vscode-foreground));
+  --cas-cant-tell: var(--vscode-editorWarning-foreground, var(--vscode-foreground));
+  --cas-broken: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+  /* hero strips: a real countdown, and test / double-check */
+  --cas-real-bg: var(--vscode-statusBarItem-errorBackground, var(--vscode-inputValidation-errorBackground));
+  --cas-real-fg: var(--vscode-statusBarItem-errorForeground, var(--vscode-errorForeground));
+  --cas-test-bg: var(--vscode-statusBarItem-warningBackground, var(--vscode-inputValidation-warningBackground));
+  --cas-test-fg: var(--vscode-statusBarItem-warningForeground, var(--vscode-foreground));
+  /* controls */
+  --cas-control-border: var(--vscode-checkbox-border, var(--vscode-input-border, var(--cas-divider)));
+  --cas-mono: var(--vscode-editor-font-family, monospace);
+
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--vscode-foreground);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  font-weight: var(--vscode-font-weight, normal);
+  line-height: 1.45;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+h1,
+h2,
+p,
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  font: inherit;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+button,
+select,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- focus ------------------------------------------------------------------------------------ */
+
+:focus {
+  outline: none;
+}
+
+/*
+ * VS Code's own webview stylesheet draws `input:focus` / `select:focus` in the browser's ring
+ * colour; the form controls are named here with enough weight to keep the theme's focus colour.
+ */
+:focus-visible,
+.select:focus-visible,
+.radio input:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.select:focus:not(:focus-visible),
+.radio input:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* A ring inside a filled button would disappear into the fill. */
+.btn:focus-visible {
+  outline-offset: 2px;
+}
+
+/* --- layout ----------------------------------------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 8px 12px 16px;
+}
+
+.app__top,
+.app__left,
+.app__stack,
+.app__right {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Visible, but not operable: during a countdown only Cancel is. */
+[inert] {
+  opacity: 0.7;
+}
+
+@media (min-width: 640px) {
+  .app {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    column-gap: 20px;
+    row-gap: 12px;
+    align-items: start;
+    padding: 12px 16px 16px;
+  }
+
+  .app--solo {
+    grid-template-columns: minmax(0, 480px);
+  }
+
+  .app__top,
+  .app__footer {
+    grid-column: 1 / -1;
+  }
+
+  .app__right {
+    grid-column: 2;
+  }
+
+  .app__left {
+    grid-column: 1;
+    position: sticky;
+    top: 12px;
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+  }
+}
+
+/* --- icons ------------------------------------------------------------------------------------ */
+
+.icon {
+  flex: none;
+}
+
+.icon--muted {
+  color: var(--cas-muted);
+}
+
+.icon--passed {
+  color: var(--cas-passed);
+}
+
+.icon--waiting {
+  color: var(--cas-waiting);
+}
+
+.icon--cantTell {
+  color: var(--cas-cant-tell);
+}
+
+.icon--broken {
+  color: var(--cas-broken);
+}
+
+.chevron {
+  color: var(--cas-muted);
+}
+
+/* --- buttons and links ------------------------------------------------------------------------ */
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.btn--primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+.btn--primary:hover {
+  background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+}
+
+.btn--secondary {
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border-color: var(--vscode-button-secondaryBorder, var(--vscode-button-border, var(--cas-divider)));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+}
+
+.btn--secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-secondaryBackground, transparent));
+}
+
+.btn[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--cas-link);
+  text-align: left;
+  cursor: pointer;
+}
+
+.link:hover {
+  color: var(--cas-link-active);
+  text-decoration: underline;
+}
+
+/*
+ * A link in the middle of a sentence must not push the lines apart, so it has no height of its
+ * own; the invisible ::after gives it the 28 px hit target.
+ */
+.link--inline {
+  position: relative;
+  display: inline;
+  min-height: 0;
+  padding: 0 2px;
+  line-height: inherit;
+}
+
+.link--inline::after {
+  position: absolute;
+  inset: -5px 0;
+  content: '';
+}
+
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 2px;
+}
+
+.link-row__item {
+  display: inline-flex;
+  align-items: center;
+}
+
+.link-row__dot {
+  padding: 0 4px;
+  color: var(--cas-muted);
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cas-muted);
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--vscode-list-hoverBackground, transparent);
+  color: var(--vscode-foreground);
+}
+
+/* --- banners ---------------------------------------------------------------------------------- */
+
+.banners {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  overflow-wrap: anywhere;
+}
+
+.banner .icon {
+  margin-top: 1px;
+}
+
+.banner--info {
+  background: var(--vscode-inputValidation-infoBackground, transparent);
+  border-color: var(--vscode-inputValidation-infoBorder, var(--cas-divider));
+  color: var(--vscode-inputValidation-infoForeground, var(--vscode-foreground));
+}
+
+.banner--warning {
+  background: var(--vscode-inputValidation-warningBackground, transparent);
+  border-color: var(--vscode-inputValidation-warningBorder, var(--cas-divider));
+  color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+}
+
+.banner--error {
+  background: var(--vscode-inputValidation-errorBackground, transparent);
+  border-color: var(--vscode-inputValidation-errorBorder, var(--cas-divider));
+  color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
+}
+
+/* --- hero ------------------------------------------------------------------------------------- */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--cas-divider);
+  border-radius: 4px;
+  background: var(--cas-card);
+  overflow-wrap: anywhere;
+}
+
+.hero__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hero__title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+}
+
+/* The state line as a filled strip across the top of the card. */
+.hero__state--strip {
+  margin: -12px -12px 4px;
+  padding: 6px 12px;
+  border-radius: 2px 2px 0 0;
+}
+
+.hero__state--strip .icon {
+  color: inherit;
+}
+
+.hero--warning {
+  border-color: var(--cas-test-bg);
+}
+
+.hero--warning .hero__state--strip,
+.hero--test .hero__state--strip {
+  background: var(--cas-test-bg);
+  color: var(--cas-test-fg);
+}
+
+/* For real: solid. Test run and preview: dashed. The border style, not its colour, is the signal. */
+.hero--real {
+  border: 2px solid var(--cas-real-bg);
+}
+
+.hero--real .hero__state--strip {
+  background: var(--cas-real-bg);
+  color: var(--cas-real-fg);
+}
+
+.hero--test {
+  border: 2px dashed var(--cas-test-bg);
+}
+
+.hero__lead {
+  font-weight: 600;
+}
+
+.hero__body,
+.hero__note {
+  color: var(--cas-muted);
+}
+
+/* Nothing a countdown says is secondary: "unsaved work will be lost" reads at full strength. */
+.hero--real .hero__body,
+.hero--real .hero__note,
+.hero--test .hero__body,
+.hero--test .hero__note {
+  color: inherit;
+}
+
+/* The digits never wrap; at 200 % zoom in a narrow side bar they shrink instead. */
+.hero__digits {
+  font-family: var(--cas-mono);
+  font-size: clamp(26px, 13vw, 40px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  overflow-wrap: normal;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.hero__digits--urgent {
+  color: var(--vscode-errorForeground);
+}
+
+.hero__primary {
+  margin-top: 4px;
+}
+
+.hero__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dot--pending {
+  width: 14px;
+  height: 14px;
+  margin: 1px;
+  border: 1px solid var(--cas-muted);
+  border-radius: 50%;
+}
+
+.hero__next {
+  color: var(--cas-muted);
+}
+
+.hero__warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.hero__warning .icon {
+  margin-top: 1px;
+}
+
+/* --- sections --------------------------------------------------------------------------------- */
+
+.section__title {
+  padding-top: 8px;
+  border-top: 1px solid var(--cas-divider);
+  color: var(--cas-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+}
+
+.plan,
+.lanes,
+.sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* --- plan ------------------------------------------------------------------------------------- */
+
+.select {
+  width: 100%;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-input-border, var(--cas-divider)));
+  border-radius: 2px;
+  background: var(--vscode-dropdown-background, var(--vscode-input-background, transparent));
+  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground, var(--vscode-foreground)));
+}
+
+.select option {
+  background: var(--vscode-dropdown-background, var(--vscode-input-background, transparent));
+  color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground, var(--vscode-foreground)));
+}
+
+.select[aria-invalid='true'] {
+  border-color: var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+
+.plan__error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--vscode-errorForeground);
+}
+
+.plan__error .icon {
+  margin-top: 1px;
+}
+
+.plan__modes {
+  display: flex;
+  flex-direction: column;
+}
+
+.radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.radio input {
+  display: grid;
+  flex: none;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  border: 1px solid var(--cas-control-border);
+  border-radius: 50%;
+  background: var(--vscode-checkbox-background, var(--vscode-input-background, transparent));
+  appearance: none;
+  cursor: pointer;
+}
+
+.radio input::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vscode-checkbox-foreground, var(--vscode-input-foreground, var(--vscode-foreground)));
+  content: '';
+  transform: scale(0);
+}
+
+.radio input:checked::before {
+  transform: scale(1);
+}
+
+.radio input:focus-visible {
+  outline-offset: 2px;
+}
+
+.plan__note,
+.plan__timing,
+.plan__reason,
+.plan__preview {
+  color: var(--cas-muted);
+}
+
+.plan__reason {
+  min-height: 1.45em;
+}
+
+.plan__summary {
+  font-weight: 600;
+}
+
+/* --- rows (lanes and sessions) ---------------------------------------------------------------- */
+
+.lanes__list,
+.sessions__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row--session {
+  min-height: 44px;
+}
+
+.row:hover {
+  background: var(--vscode-list-hoverBackground, transparent);
+}
+
+.row > .icon {
+  margin-top: 1px;
+}
+
+.row__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* When there is no room for both, the status drops below the name rather than squeezing it out. */
+.row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  min-width: 0;
+}
+
+.row__name {
+  flex: 1 1 80px;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__status {
+  flex: none;
+  color: var(--cas-muted);
+}
+
+.row__title {
+  flex: none;
+  font-weight: 600;
+}
+
+.row__text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row__line,
+.row__hint {
+  color: var(--cas-muted);
+  overflow-wrap: anywhere;
+}
+
+.row__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tag {
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--vscode-badge-background, transparent);
+  color: var(--vscode-badge-foreground, var(--vscode-foreground));
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* Meters, follow-up lines and panels line up with the row's text: 4 padding + 16 icon + 8 gap. */
+.row__meter {
+  margin: 0 28px 6px;
+}
+
+.row__after {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 4px 4px 28px;
+  color: var(--cas-muted);
+  overflow-wrap: anywhere;
+}
+
+.row__after .icon {
+  margin-top: 1px;
+}
+
+.row__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 4px 8px 11px;
+  padding: 4px 0 4px 15px;
+  border-left: 2px solid var(--cas-divider);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row__note,
+.row__action {
+  color: var(--cas-muted);
+}
+
+/* A command a stray Claude process started, under that process. */
+.row__action--nested {
+  margin-left: 16px;
+}
+
+.row__gear {
+  align-self: flex-end;
+  margin-top: -4px;
+}
+
+.session--ignored .row__name {
+  color: var(--cas-muted);
+  font-weight: normal;
+}
+
+/* The list is the last one that could be read. Its heading says so in words. */
+.sessions--stale .sessions__list {
+  opacity: 0.6;
+}
+
+.sessions__empty,
+.sessions__omitted,
+.lanes__clear,
+.lanes__earliest {
+  color: var(--cas-muted);
+}
+
+.notice,
+.override {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 4px;
+  overflow-wrap: anywhere;
+}
+
+.notice .icon,
+.override .icon {
+  margin-top: 1px;
+}
+
+.override__text {
+  color: var(--cas-muted);
+}
+
+/* --- meters ----------------------------------------------------------------------------------- */
+
+.meter {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--cas-track);
+}
+
+.meter__fill {
+  height: 100%;
+  background: var(--vscode-progressBar-background, var(--vscode-foreground));
+  transition: width 1s linear;
+}
+
+.meter--countdown {
+  height: 6px;
+  border-radius: 3px;
+}
+
+/* --- raw checks ------------------------------------------------------------------------------- */
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.check .icon {
+  margin-top: 1px;
+}
+
+.check__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.check__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.check__state {
+  flex: none;
+  color: var(--cas-muted);
+}
+
+.check__detail {
+  color: var(--cas-muted);
+  overflow-wrap: anywhere;
+}
+
+/* --- expanded session ------------------------------------------------------------------------- */
+
+.details,
+.preview {
+  font-family: var(--cas-mono);
+  font-size: 0.92em;
+}
+
+.details {
+  color: var(--cas-muted);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preview__event {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  column-gap: 8px;
+}
+
+.preview__time {
+  color: var(--cas-muted);
+}
+
+.preview__who {
+  font-weight: 600;
+}
+
+/* Two lines at most: enough to recognise the event, even in a 300 px side bar. */
+.preview__text {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.preview__count,
+.preview__status {
+  color: var(--cas-muted);
+}
+
+.subagents__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.subagents__list {
+  padding-left: 22px;
+  color: var(--cas-muted);
+}
+
+.subagent__name {
+  font-family: var(--cas-mono);
+  font-size: 0.92em;
+}
+
+.subagent--active {
+  color: var(--vscode-foreground);
+}
+
+/* --- footer ----------------------------------------------------------------------------------- */
+
+.footer {
+  padding-top: 4px;
+  border-top: 1px solid var(--cas-divider);
+}
+
+.footer__help {
+  padding-left: 8px;
+}
+
+/* --- high contrast: borders, not fills -------------------------------------------------------- */
+
+body.vscode-high-contrast .hero,
+body.vscode-high-contrast .banner,
+body.vscode-high-contrast .btn,
+body.vscode-high-contrast .tag,
+body.vscode-high-contrast .select,
+body.vscode-high-contrast .meter {
+  border: 1px solid var(--vscode-contrastBorder);
+  background: transparent;
+  color: var(--vscode-foreground);
+}
+
+body.vscode-high-contrast .btn--primary {
+  border-width: 2px;
+  font-weight: 600;
+}
+
+body.vscode-high-contrast .hero__state--strip {
+  border-bottom: 1px solid var(--vscode-contrastBorder);
+  background: transparent;
+  color: var(--vscode-foreground);
+}
+
+body.vscode-high-contrast .hero--real {
+  border: 2px solid var(--vscode-contrastBorder);
+}
+
+body.vscode-high-contrast .hero--test {
+  border: 2px dashed var(--vscode-contrastBorder);
+}
+
+body.vscode-high-contrast .meter {
+  height: 6px;
+}
+
+body.vscode-high-contrast .meter__fill {
+  background: var(--vscode-progressBar-background, var(--vscode-contrastBorder));
+}
+
+body.vscode-high-contrast .btn:hover,
+body.vscode-high-contrast .row:hover,
+body.vscode-high-contrast .link:hover,
+body.vscode-high-contrast .icon-button:hover {
+  outline: 1px dashed var(--vscode-contrastActiveBorder);
+  outline-offset: -1px;
+  background: transparent;
+}
+
+body.vscode-high-contrast :focus-visible,
+body.vscode-high-contrast .select:focus-visible,
+body.vscode-high-contrast .radio input:focus-visible {
+  outline: 2px solid var(--vscode-contrastActiveBorder);
+}
+
+/* Dimming costs contrast; in high contrast the words alone say "not operable" / "last seen". */
+body.vscode-high-contrast [inert],
+body.vscode-high-contrast .sessions--stale .sessions__list {
+  opacity: 1;
+}
+
+body.vscode-high-contrast .btn[aria-disabled='true'] {
+  border-style: dotted;
+  color: var(--cas-disabled);
+  opacity: 1;
+}
+
+/* --- reduced motion: nothing spins, meters step ----------------------------------------------- */
+
+body.vscode-reduce-motion *,
+body.vscode-reduce-motion *::before {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}

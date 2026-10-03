@@ -1,0 +1,101 @@
+/* The harness page itself (not the dashboard): neutral chrome around the frame. */
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  background: #3a3d41;
+  color: #e6e6e6;
+  font: 13px/1.4 'Segoe UI', system-ui, sans-serif;
+}
+
+.controls {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+  width: 300px;
+  padding: 12px;
+  overflow-y: auto;
+  background: #1f2023;
+  box-sizing: border-box;
+}
+
+.controls h1 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.controls h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+
+.hint {
+  margin: 0 0 6px;
+  color: #a8a8a8;
+}
+
+.controls label {
+  margin-top: 6px;
+  color: #c8c8c8;
+}
+
+.controls select,
+.controls button {
+  padding: 4px 6px;
+  border: 1px solid #55585c;
+  border-radius: 3px;
+  background: #2d2f33;
+  color: inherit;
+  font: inherit;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+#log {
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+  color: #b9d6f2;
+  font: 11px/1.5 Consolas, monospace;
+  list-style: none;
+}
+
+#log li {
+  padding: 2px 0;
+  border-bottom: 1px solid #2d2f33;
+}
+
+.stage {
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
+  overflow: auto;
+}
+
+#frame {
+  display: block;
+  width: 300px;
+  height: 100%;
+  border: 0;
+  box-shadow: 0 0 0 1px #000;
+}

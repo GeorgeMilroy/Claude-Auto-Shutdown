@@ -170,6 +170,8 @@ export const sessions = {
   },
   pid: (pid: number): string => `PID ${pid}`,
   turn: (turn: string): string => `turn ${turn}`,
+  claudeStatus: (status: string, overruled: boolean): string =>
+    `Claude Code: ${status}${overruled ? ', judged by the transcript' : ''}`,
   subagentsHeading: (count: number): string => `Subagents (${count})`,
   subagentWrote: (seconds: number | null): string =>
     seconds === null ? 'write time unknown' : `wrote ${fmtDuration(seconds)} ago`,

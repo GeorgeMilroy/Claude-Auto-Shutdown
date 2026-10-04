@@ -157,11 +157,14 @@ function detailsOf(session: Session): string {
   const entrypoint = text(session.entrypoint);
   const pid = finite(session.pid);
   const turn = TURN_STATES.includes(session.turn) ? session.turn : 'UNKNOWN';
+  // Short on purpose: a status word is never long, and garbage must not fill the row.
+  const status = text(session.claudeStatus)?.replace(/\s+/g, ' ').slice(0, 32) ?? null;
   return [
     text(session.cwd),
     entrypoint === null ? null : copy.entrypoint(entrypoint),
     pid === null ? null : copy.pid(pid),
     copy.turn(turn),
+    status === null ? null : copy.claudeStatus(status, session.turnSource === 'transcript'),
   ]
     .filter((part): part is string => part !== null)
     .join(' · ');

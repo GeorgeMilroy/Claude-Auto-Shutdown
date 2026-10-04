@@ -4,7 +4,7 @@ The dashboard lists every Claude Code session found on this PC and gives each on
 
 | Word | Meaning |
 | --- | --- |
-| **Working** | The turn is still open: a tool is running, a result is being read, a subagent is active. |
+| **Working** | Claude Code says the session is busy or needs your answer, or its turn is still open: a tool is running, a result is being read, a subagent is active. |
 | **Just finished** | The turn ended, but less than the quiet time ago. |
 | **Finished** | The turn ended and nothing has been written for the quiet time. |
 | **Can't tell** | Something could not be read. It counts as working. |

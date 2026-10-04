@@ -331,12 +331,12 @@ describe("don't wait for this session", () => {
     // A write time with a fraction of a millisecond, as real file systems report it.
     fs.utimesSync(transcript, (ago(4000) + 0.7) / 1000, (ago(4000) + 0.7) / 1000);
     const size = fs.statSync(transcript).size;
-    expect(only(await ws.scan()).ignoreKey).toBe(`session:0:4242:${ID}:${size}:${ago(4000)}:${ago(5000)}`);
+    expect(only(await ws.scan()).ignoreKey).toBe(`session:0:4242:${ID}:${size}:${ago(4000)}:${ago(5000)}:0`);
   });
 
   it('uses zeros for what does not exist', async () => {
     ws.liveSession(4242, ID);
-    expect(only(await ws.scan()).ignoreKey).toBe(`session:0:4242:${ID}:0:0:0`);
+    expect(only(await ws.scan()).ignoreKey).toBe(`session:0:4242:${ID}:0:0:0:0`);
   });
 
   it('honours the ignore until the transcript grows', async () => {

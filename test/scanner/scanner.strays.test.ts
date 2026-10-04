@@ -110,7 +110,7 @@ describe('transcripts nobody claims, while a stray is running', () => {
       activeSubagents: 1,
       lastActivityMs: ago(5),
       children: [],
-      ignoreKey: `session:0:0:${ORPHAN}:${fs.statSync(transcript).size}:${ago(50)}:${ago(5)}`,
+      ignoreKey: `session:0:0:${ORPHAN}:${fs.statSync(transcript).size}:${ago(50)}:${ago(5)}:0`,
     });
     expect(result.strays).toMatchObject([{ pid: 7000, accounted: true }]);
     expect(result.unclaimedRecent).toEqual([]);

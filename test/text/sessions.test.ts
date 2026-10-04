@@ -17,6 +17,14 @@ const QUIET = 300;
 describe('turnReasonText', () => {
   const expected: Record<TurnReason, string> = {
     turnEnded: 'Turn ended',
+    interrupted: 'Interrupted',
+    toolDeclined: 'Stopped after a declined permission',
+    localCommand: 'Ran a local command',
+    claudeIdle: 'Idle, says Claude Code',
+    claudeShell: 'Idle with a background command, says Claude Code',
+    claudeWaiting: 'Needs your answer',
+    claudeBusy: 'Busy, says Claude Code',
+    claudeStatusUnknown: 'Unknown status from Claude Code',
     toolInFlight: 'Running a tool',
     cutAtTokenLimit: 'Reply cut off at the token limit',
     replyInProgress: 'Writing a reply',
@@ -51,6 +59,8 @@ describe('turnReasonText', () => {
     expect(turnReasonText('unknownRecord', 'queue-operation')).toBe('Unrecognised transcript record (queue-operation)');
     expect(turnReasonText('replyInProgress', 'pause_turn')).toBe('Writing a reply');
     expect(turnReasonText('turnEnded', 'end_turn')).toBe('Turn ended');
+    expect(turnReasonText('claudeWaiting', 'permission prompt')).toBe('Needs your answer (permission prompt)');
+    expect(turnReasonText('claudeStatusUnknown', 'paused')).toBe('Unknown status from Claude Code (paused)');
   });
 
   it('prints a reason it does not know verbatim', () => {
@@ -177,6 +187,16 @@ describe('describeSession: stuck hint', () => {
   ])('no hint for %s', (_case, overrides, silence) => {
     expect(describeSession(session(overrides), QUIET, silence).hint).toBeNull();
   });
+
+  it("says what Claude Code says instead of guessing", () => {
+    const asking = workingSession('web-ui', { turnReason: 'claudeWaiting', turnDetail: 'permission prompt', waitingFor: 'permission prompt' });
+    expect(describeSession(asking, QUIET, 2820).hint).toBe('Needs your answer (permission prompt). Nothing written for 47 min.');
+    expect(describeSession({ ...asking, waitingFor: null, turnDetail: null }, QUIET, 2820).hint).toBe(
+      'Needs your answer. Nothing written for 47 min.',
+    );
+    const busy = workingSession('web-ui', { turnReason: 'claudeBusy', claudeStatus: 'busy' });
+    expect(describeSession(busy, QUIET, 2820).hint).toBe('Nothing written for 47 min, but Claude Code says it is still busy.');
+  });
 });
 
 describe('describeSession: tooltip', () => {
@@ -188,6 +208,40 @@ describe('describeSession: tooltip', () => {
   it('adds the raw detail and leaves out a PID it does not have', () => {
     const foreign = session({ pid: null, turn: 'UNKNOWN', turnReason: 'cannotRead', turnDetail: 'EACCES', liveness: 'foreign' });
     expect(describeSession(foreign, QUIET, 18).tooltip).toBe('cannotRead (EACCES) · turn UNKNOWN');
+  });
+
+  it("adds Claude Code's own status, and when the transcript overruled it", () => {
+    const since = new Date(2026, 0, 15, 14, 3).getTime();
+    const idle: Session = {
+      ...finishedSession('infra'),
+      turnReason: 'claudeIdle',
+      claudeStatus: 'idle',
+      claudeStatusSinceMs: since,
+      turnSource: 'claude',
+    };
+    expect(describeSession(idle, QUIET, 3720).tooltip).toBe('claudeIdle · turn CLOSED · PID 9120 · Claude Code: idle since 14:03');
+    const stale = workingSession('api-refactor', { claudeStatus: 'idle', claudeStatusSinceMs: since, turnSource: 'transcript' });
+    expect(describeSession(stale, QUIET, 18).tooltip).toBe(
+      'toolInFlight · turn OPEN · PID 9120 · Claude Code: idle since 14:03, judged by the transcript',
+    );
+    expect(describeSession({ ...idle, claudeStatusSinceMs: null }, QUIET, 3720).tooltip).toBe(
+      'claudeIdle · turn CLOSED · PID 9120 · Claude Code: idle',
+    );
+  });
+
+  it('shows nothing of a status it was not given, or garbage', () => {
+    for (const value of GARBAGE) {
+      const garbled = session({
+        claudeStatus: value as string,
+        waitingFor: value as string,
+        claudeStatusSinceMs: value as number,
+        kind: value as string,
+        turnSource: value as 'claude',
+      });
+      const text = describeSession(garbled, QUIET, 2820);
+      expectPrintable(text);
+      if (typeof value !== 'string' || value === '') expect(text.tooltip).not.toContain('Claude Code');
+    }
   });
 
   it('never says a turn is closed unless the engine said so', () => {

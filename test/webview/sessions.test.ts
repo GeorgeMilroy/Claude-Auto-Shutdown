@@ -207,6 +207,37 @@ describe('a row', () => {
   });
 });
 
+describe("a row with Claude Code's own status", () => {
+  it('says what Claude Code says, in the line, the hint and the details', () => {
+    const model = sessionsOf('watching-claude-status');
+    const busy = row(model, 'api-refactor');
+    expect(busy.status).toBe('Working');
+    expect(busy.details).toBe('D:\\work\\api-refactor · VS Code · PID 9120 · turn OPEN · Claude Code: busy');
+    const asking = row(model, 'web-ui');
+    expect(asking.hint).toBe('Needs your answer (permission prompt). Nothing written for 47 min.');
+    expect(asking.details).toContain('Claude Code: waiting');
+    expect(row(model, 'docs').details).toContain('turn CLOSED · Claude Code: idle');
+  });
+
+  it('says when the transcript overruled the status, and leaves garbage out', () => {
+    const overruled = sessionsOf('watching-claude-status', {
+      state: withSessions((sessions) => sessions.map((s) => (s.name === 'docs' ? { ...s, turnSource: 'transcript' } : s))),
+    });
+    expect(row(overruled, 'docs').details).toContain('Claude Code: idle, judged by the transcript');
+    for (const claudeStatus of [null, '', '  ', 7, {}, ['busy']]) {
+      const garbled = sessionsOf('watching-claude-status', {
+        state: withSessions((sessions) => sessions.map((s) => ({ ...s, claudeStatus: claudeStatus as string }))),
+      });
+      expect(row(garbled, 'api-refactor').details).not.toContain('Claude Code');
+      expectPrintable(garbled);
+    }
+    const long = sessionsOf('watching-claude-status', {
+      state: withSessions((sessions) => sessions.map((s) => ({ ...s, claudeStatus: `a\n${'x'.repeat(200)}` }))),
+    });
+    expect(row(long, 'api-refactor').details).toMatch(/Claude Code: a x{30}$/);
+  });
+});
+
 describe('"Don\'t wait for…" on sessions', () => {
   it("is offered for a session that can't be read, and for one that went silent while working", () => {
     const model = sessionsOf('watching-real');

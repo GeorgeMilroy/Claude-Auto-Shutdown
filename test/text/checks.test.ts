@@ -327,6 +327,25 @@ describe('describeCheck: wording (ui-amendments section D)', () => {
     ).toBe('1 of 2 finished (1 not waited for)');
   });
 
+  it('sessionsIdle counts the sessions that need an answer apart from the working ones', () => {
+    const asking = (name: string) => workingSession(name, { turnReason: 'claudeWaiting', turnDetail: 'permission prompt' });
+    expect(detail('sessionsIdle', 'waiting', {}, context({ sessions: [asking('web-ui')] }))).toBe('1 of 1 needs your answer');
+    const sessions = [workingSession('api-refactor'), asking('web-ui'), asking('docs'), finishedSession('infra')];
+    expect(detail('sessionsIdle', 'waiting', {}, context({ sessions }))).toBe('1 of 4 still working · 2 need your answer');
+    expect(detail('sessionsIdle', 'waiting', {}, context({ sessions: [asking('web-ui'), justFinishedSession('docs')] }))).toBe(
+      '1 of 2 needs your answer · 1 just finished',
+    );
+    // Its question let go (waitForAnswers off) but held by something else: plainly still working.
+    const letGo = workingSession('loop', { turn: 'CLOSED', turnReason: 'claudeWaiting', why: { id: 'scheduledWakeup', inSeconds: 600 } });
+    expect(detail('sessionsIdle', 'waiting', {}, context({ sessions: [letGo, justFinishedSession('docs')] }))).toBe(
+      '1 of 2 still working · 1 just finished',
+    );
+    // Let go by the user: not counted at all.
+    expect(detail('sessionsIdle', 'pass', {}, context({ sessions: [asking('web-ui'), finishedSession('infra')].map((s, i) => (i === 0 ? { ...s, ignored: true } : s)) }))).toBe(
+      '1 of 2 finished (1 not waited for)',
+    );
+  });
+
   it('sessionsIdle keeps to the numbers of the check when the session list is a different one', () => {
     const sessions = [workingSession('api-refactor'), justFinishedSession('docs')];
     const counted = { total: 3, working: 2, cantTell: 1, ignored: 0, names: [] };

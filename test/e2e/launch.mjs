@@ -64,9 +64,23 @@ writeFileSync(
 );
 const quietSince = new Date(Date.now() - 95_000);
 utimesSync(transcript, quietSince, quietSince);
+// Claude Code's own status, as it writes it: idle since the turn ended.
+const registry = join(claude, 'sessions', `${sleeper.pid}.json`);
 writeFileSync(
-  join(claude, 'sessions', `${sleeper.pid}.json`),
-  JSON.stringify({ pid: sleeper.pid, sessionId, cwd: workspace, name: 'e2e-session', entrypoint: 'cli', kind: 'interactive', startedAt: Date.now() - 130_000, procStart }),
+  registry,
+  JSON.stringify({
+    pid: sleeper.pid,
+    sessionId,
+    cwd: workspace,
+    name: 'e2e-session',
+    entrypoint: 'cli',
+    kind: 'interactive',
+    startedAt: Date.now() - 130_000,
+    procStart,
+    status: 'idle',
+    statusUpdatedAt: quietSince.getTime(),
+    updatedAt: quietSince.getTime(),
+  }),
 );
 
 // The shortest rules the settings allow, test mode on, nothing that pops up or makes noise.
@@ -107,7 +121,7 @@ Object.assign(env, {
   CLAUDE_AUTOSHUTDOWN_HOME: stateDir,
   CLAUDE_AUTOSHUTDOWN_ENDPOINT: `\\\\.\\pipe\\cas-e2e-${randomBytes(6).toString('hex')}`,
   CAS_E2E_RESULT: resultFile,
-  CAS_E2E_FIXTURE: JSON.stringify({ transcript, sessionId, pid: sleeper.pid, stateDir }),
+  CAS_E2E_FIXTURE: JSON.stringify({ transcript, registry, sessionId, pid: sleeper.pid, stateDir }),
 });
 
 const args = [

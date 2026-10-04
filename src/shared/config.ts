@@ -39,6 +39,8 @@ export interface Config {
   keepAwake: boolean;
   /** Stay on while a command started by a session is still doing work (CPU or I/O). */
   waitForChildProcesses: boolean;
+  /** Stay on while Claude Code says a session waits for the user's answer (a permission prompt, a question). */
+  waitForAnswers: boolean;
   /** Extra Claude config directories to watch besides ~/.claude and $CLAUDE_CONFIG_DIR. */
   extraClaudeDirs: string[];
   /** Windows: also look for Claude sessions inside running WSL distros. */
@@ -63,6 +65,7 @@ export const DEFAULT_CONFIG: Readonly<Config> = Object.freeze({
   countdownAlert: true,
   keepAwake: true,
   waitForChildProcesses: true,
+  waitForAnswers: true,
   extraClaudeDirs: [],
   scanWsl: true,
   showStatusBar: true,
@@ -94,6 +97,7 @@ const BOOL_KEYS: BoolKey[] = [
   'countdownAlert',
   'keepAwake',
   'waitForChildProcesses',
+  'waitForAnswers',
   'scanWsl',
   'showStatusBar',
 ];
@@ -198,6 +202,7 @@ export type ArmContract = Readonly<
     | 'forceCloseApps'
     | 'guardProcesses'
     | 'waitForChildProcesses'
+    | 'waitForAnswers'
     | 'extraClaudeDirs'
     | 'scanWsl'
   >
@@ -216,6 +221,7 @@ const CONTRACT_KEYS = [
   'forceCloseApps',
   'guardProcesses',
   'waitForChildProcesses',
+  'waitForAnswers',
   'extraClaudeDirs',
   'scanWsl',
 ] as const satisfies readonly (keyof ArmContract)[];

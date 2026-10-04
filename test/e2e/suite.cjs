@@ -90,6 +90,7 @@ async function scenario() {
     assert(session.pid === fixture.pid, `pid ${session.pid} != ${fixture.pid}`);
     assert(session.liveness === 'verified', `liveness ${session.liveness} (start time did not match procStart)`);
     assert(session.turn === 'CLOSED', `turn ${session.turn}/${session.turnReason}`);
+    assert(session.turnReason === 'claudeIdle' && session.turnSource === 'claude', `judged by ${session.turnSource}: ${session.turnReason}`);
     assert(session.status === 'finished', `status ${session.status}`);
     assert(s.platform.helperTier === 'full', `helper tier ${s.platform.helperTier}: ${s.platform.problem}`);
     return `${s.sessions.length} session(s); idle known: ${s.checks.length} checks`;
@@ -175,11 +176,15 @@ async function scenario() {
 
   await step('a session that goes back to work blocks again', async () => {
     await api.send({ name: 'dismissResult' });
+    // What Claude Code does when a prompt arrives: the prompt goes into the transcript, and the
+    // session's status turns busy.
     fs.appendFileSync(fixture.transcript, JSON.stringify({ type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: 'one more thing' } }) + '\n');
+    const entry = JSON.parse(fs.readFileSync(fixture.registry, 'utf8'));
+    fs.writeFileSync(fixture.registry, JSON.stringify({ ...entry, status: 'busy', statusUpdatedAt: Date.now(), updatedAt: Date.now() }));
     await api.send({ name: 'refresh' });
     const s = await waitFor('session working', () => {
       const session = state()?.sessions.find((candidate) => candidate.sessionId === fixture.sessionId);
-      return session && session.turn === 'OPEN' ? state() : null;
+      return session && session.turn === 'OPEN' && session.turnReason === 'claudeBusy' ? state() : null;
     }, 20_000);
     const idle = s.checks.find((check) => check.id === 'sessionsIdle');
     assert(idle && idle.state !== 'pass', `sessionsIdle is ${idle && idle.state}`);

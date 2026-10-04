@@ -832,6 +832,7 @@ export class Controller {
       quietSeconds: contract.quietSeconds,
       guardPatterns: contract.guardProcesses,
       waitForChildProcesses: contract.waitForChildProcesses,
+      waitForAnswers: contract.waitForAnswers,
       extraClaudeDirs: contract.extraClaudeDirs,
       scanWsl: contract.scanWsl,
       ignores: new Set(this.ignores.keys()),

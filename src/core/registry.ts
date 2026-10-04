@@ -23,6 +23,17 @@ export interface RegistryFields {
   startedAtMs: number | null;
   /** Process start in the OS's own unit (Windows FILETIME, Linux clock ticks); null = not given. */
   procStart: bigint | null;
+  /** 'interactive', 'bg', 'daemon', 'daemon-worker'; '' when absent. */
+  kind: string;
+  /**
+   * What Claude Code says the session is doing: 'busy', 'idle', 'waiting' or 'shell' today. Kept
+   * raw, so a value a newer Claude Code adds can be shown; null when absent.
+   */
+  claudeStatus: string | null;
+  /** With 'waiting': what for ('permission prompt', 'input needed', ...); null when absent. */
+  waitingFor: string | null;
+  /** Epoch ms of the last change of claudeStatus; null when absent or not a finite number. */
+  statusUpdatedAtMs: number | null;
 }
 
 export interface RegistryEntry extends RegistryFields {
@@ -43,9 +54,16 @@ const BYTE_ORDER_MARK = 0xfeff;
 const MAX_ID_CHARS = 128;
 const MAX_NAME_CHARS = 120;
 const MAX_PATH_CHARS = 1024;
+/** Claude Code's status words are short; anything longer is garbage, cut so it stays small. */
+const MAX_STATUS_CHARS = 32;
 
 function text(value: unknown, maxChars: number): string {
   return typeof value === 'string' ? value.trim().slice(0, maxChars) : '';
+}
+
+/** One line of text, or null when there is none. */
+function lineOrNull(value: unknown, maxChars: number): string | null {
+  return text(typeof value === 'string' ? value.replace(/\s+/g, ' ') : value, maxChars) || null;
 }
 
 function readPid(value: unknown): number | null {
@@ -86,6 +104,11 @@ export function parseRegistryEntry(content: string): ParsedRegistry {
       entrypoint: text(value.entrypoint, MAX_ID_CHARS),
       startedAtMs: readStartedAt(value.startedAt),
       procStart: readProcStart(value.procStart),
+      kind: text(value.kind, MAX_ID_CHARS),
+      claudeStatus: lineOrNull(value.status, MAX_STATUS_CHARS),
+      waitingFor: lineOrNull(value.waitingFor, MAX_NAME_CHARS),
+      // Same rule as startedAt: a finite, positive epoch-ms number, else unknown.
+      statusUpdatedAtMs: readStartedAt(value.statusUpdatedAt),
     },
   };
 }

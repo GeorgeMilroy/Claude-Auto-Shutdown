@@ -112,7 +112,7 @@ const BASES: Base[] = [
 /** Fields no check judges in any input. */
 const NEVER_JUDGED: RegExp[] = [
   // Contract fields for the controller and the scanner.
-  /^contract\.(testMode|pollSeconds|countdownSeconds|forceCloseApps|scanWsl)$/,
+  /^contract\.(testMode|pollSeconds|countdownSeconds|forceCloseApps|scanWsl|waitForAnswers)$/,
   /^contract\.extraClaudeDirs(\.\d+)?$/,
   // Only the NUMBER of keep-on patterns matters here; matching them is the scanner's job.
   /^contract\.guardProcesses\.\d+$/,
@@ -128,6 +128,8 @@ const NEVER_JUDGED: RegExp[] = [
   /^scan\.strays\.1\.children\.1\.busy$/,
   /^scan\.sessions\.\d+\.(key|origin|liveness|pid|sessionId|name|cwd|folder|entrypoint|rootLabel)$/,
   /^scan\.sessions\.\d+\.(startedAtMs|transcriptPath|lastActivityMs|turnReason|turnDetail|ignoreKey)$/,
+  // Claude Code's own status: the scanner folds it into `turn` and `working`.
+  /^scan\.sessions\.\d+\.(kind|claudeStatus|waitingFor|claudeStatusSinceMs|turnSource)$/,
   /^scan\.sessions\.\d+\.children\.\d+\.(pid|name|cpuPercent|ioBytesPerSecond|ignoreKey)$/,
   // Already folded into `working` by the scanner.
   /^scan\.sessions\.\d+\.activeSubagents$/,

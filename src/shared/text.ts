@@ -601,6 +601,8 @@ interface SessionCounts {
   /** null = no session list and no count from the check. */
   total: number | null;
   working: number;
+  /** Working sessions Claude Code reports as waiting for the user's answer (counted apart). */
+  needsAnswer: number;
   justFinished: number;
   cantTell: number;
   ignored: number;
@@ -623,6 +625,7 @@ function sessionCounts(check: Check, context: TextContext): SessionCounts {
     return {
       total: reported,
       working: whole(check.data.working) ?? 0,
+      needsAnswer: 0,
       justFinished: 0,
       cantTell: whole(check.data.cantTell) ?? 0,
       ignored: whole(check.data.ignored) ?? 0,
@@ -630,13 +633,16 @@ function sessionCounts(check: Check, context: TextContext): SessionCounts {
   }
   const blocking = sessions.filter(isBlocking);
   const justFinished = blocking.filter((session) => session.status === 'justFinished').length;
-  const working = blocking.filter((session) => session.status === 'working').length;
+  const working = blocking.filter((session) => session.status === 'working');
+  // "Still working" would be wrong for these: nothing happens until the user answers.
+  const needsAnswer = working.filter((session) => session.turn === 'OPEN' && session.turnReason === 'claudeWaiting').length;
   return {
     total: sessions.length,
-    working,
+    working: working.length - needsAnswer,
+    needsAnswer,
     justFinished,
     // Anything that blocks without a known status is a "can't tell", not a guess.
-    cantTell: blocking.length - working - justFinished,
+    cantTell: blocking.length - working.length - justFinished,
     ignored: sessions.filter((session) => session.ignored === true).length,
   };
 }
@@ -650,10 +656,13 @@ function finishedText({ total, ignored }: SessionCounts): string {
 }
 
 /** "2 of 3 still working · 1 can't tell": only the first part carries the total. */
-function blockingText({ total, working, justFinished, cantTell }: SessionCounts): string {
+function blockingText({ total, working, needsAnswer, justFinished, cantTell }: SessionCounts): string {
   const ofTotal = total === null ? '' : ` of ${total}`;
   const parts: string[] = [];
   if (working > 0) parts.push(`${working}${ofTotal} still working`);
+  if (needsAnswer > 0) {
+    parts.push(`${needsAnswer}${parts.length === 0 ? ofTotal : ''} ${needsAnswer === 1 ? 'needs' : 'need'} your answer`);
+  }
   if (justFinished > 0) parts.push(`${justFinished}${parts.length === 0 ? ofTotal : ''} just finished`);
   if (cantTell > 0) parts.push(parts.length === 0 ? `can't tell about ${cantTell}${ofTotal}` : `${cantTell} can't tell`);
   return parts.join(' · ');
@@ -980,7 +989,7 @@ function meterOf(check: Check, context: TextContext): Meter | null {
 function isOnlyQuietTime(check: Check, context: TextContext): boolean {
   if (check.id !== 'sessionsIdle' || check.state !== 'waiting') return false;
   const counts = sessionCounts(check, context);
-  return counts.justFinished > 0 && counts.working === 0 && counts.cantTell === 0;
+  return counts.justFinished > 0 && counts.working === 0 && counts.needsAnswer === 0 && counts.cantTell === 0;
 }
 
 /**
@@ -1070,6 +1079,14 @@ export function headline(state: UiState): string {
 
 const TURN_REASONS: Record<TurnReason, string> = {
   turnEnded: 'Turn ended',
+  interrupted: 'Interrupted',
+  toolDeclined: 'Stopped after a declined permission',
+  localCommand: 'Ran a local command',
+  claudeIdle: 'Idle, says Claude Code',
+  claudeShell: 'Idle with a background command, says Claude Code',
+  claudeWaiting: 'Needs your answer',
+  claudeBusy: 'Busy, says Claude Code',
+  claudeStatusUnknown: 'Unknown status from Claude Code',
   toolInFlight: 'Running a tool',
   cutAtTokenLimit: 'Reply cut off at the token limit',
   replyInProgress: 'Writing a reply',
@@ -1085,7 +1102,12 @@ const TURN_REASONS: Record<TurnReason, string> = {
 };
 
 /** Reasons whose raw detail (a record type, an OS error) says something the wording does not. */
-const REASONS_SHOWING_DETAIL: ReadonlySet<string> = new Set<TurnReason>(['unknownRecord', 'cannotRead']);
+const REASONS_SHOWING_DETAIL: ReadonlySet<string> = new Set<TurnReason>([
+  'unknownRecord',
+  'cannotRead',
+  'claudeWaiting',
+  'claudeStatusUnknown',
+]);
 
 /** A reason this version does not know prints verbatim. */
 function turnReasonWords(reason: unknown, detail: unknown): string {
@@ -1174,7 +1196,14 @@ function sessionLine(session: Session, quietSeconds: number, silenceSeconds: num
 
 function stuckHint(session: Session, silenceSeconds: number | null): string | null {
   if (session.turn !== 'OPEN' || !isStuck(session, silenceSeconds)) return null;
-  return `Nothing written for ${fmtDuration(silenceSeconds)}. May be waiting for your approval, or was interrupted.`;
+  const quiet = `Nothing written for ${fmtDuration(silenceSeconds)}`;
+  // Claude Code's own status says why the session is silent: no need to guess.
+  if (session.turnReason === 'claudeWaiting') {
+    const what = clean(session.waitingFor) ?? clean(session.turnDetail);
+    return `Needs your answer${what === null ? '' : ` (${what})`}. ${quiet}.`;
+  }
+  if (session.turnReason === 'claudeBusy') return `${quiet}, but Claude Code says it is still busy.`;
+  return `${quiet}. May be waiting for your approval, or was interrupted.`;
 }
 
 function sessionTooltip(session: Session): string {
@@ -1182,7 +1211,17 @@ function sessionTooltip(session: Session): string {
   const reason = `${clean(session.turnReason) ?? UNKNOWN}${detail === null ? '' : ` (${detail})`}`;
   const turn = TURN_STATES.includes(session.turn) ? session.turn : 'UNKNOWN';
   const pid = whole(session.pid);
-  return joinParts([reason, `turn ${turn}`, pid === null ? null : `PID ${pid}`]);
+  return joinParts([reason, `turn ${turn}`, pid === null ? null : `PID ${pid}`, claudeStatusText(session)]);
+}
+
+/** "Claude Code: idle since 14:03"; null when Claude Code gave no status (or an older window sent none). */
+function claudeStatusText(session: Session): string | null {
+  const status = clean(session.claudeStatus, 32);
+  if (status === null) return null;
+  const since = finite(session.claudeStatusSinceMs);
+  // The status was there but could not be checked (or was stale): the transcript decided.
+  const note = session.turnSource === 'transcript' ? ', judged by the transcript' : '';
+  return `Claude Code: ${status}${since === null ? '' : ` since ${fmtTime(since)}`}${note}`;
 }
 
 /**

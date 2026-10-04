@@ -2,7 +2,7 @@
   "name": "claude-auto-shutdown",
   "displayName": "Claude Auto Shutdown",
   "description": "Shut down, sleep, hibernate or lock your computer only after every Claude Code session has really finished working.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "MECoreLabs",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -368,8 +368,16 @@
           "default": true,
           "markdownDescription": "Stay on while a command started by a Claude session (a build, a test run, a download) is still using the CPU or the disk, even after the turn has ended."
         },
-        "claudeAutoShutdown.extraClaudeDirs": {
+        "claudeAutoShutdown.waitForAnswers": {
           "order": 16,
+          "scope": "application",
+          "ignoreSync": true,
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Stay on while Claude Code says a session is waiting for your answer: a permission prompt, a question or a dialog. Off: such a session counts as finished once it has been quiet for the time in `#claudeAutoShutdown.quietSeconds#`, and the question stays unanswered (you can resume the conversation later)."
+        },
+        "claudeAutoShutdown.extraClaudeDirs": {
+          "order": 17,
           "scope": "application",
           "ignoreSync": true,
           "type": "array",
@@ -381,7 +389,7 @@
           "markdownDescription": "Extra Claude config folders to watch, besides `~/.claude` and `$CLAUDE_CONFIG_DIR`. A folder listed here that can't be read keeps this PC on."
         },
         "claudeAutoShutdown.scanWsl": {
-          "order": 17,
+          "order": 18,
           "scope": "application",
           "ignoreSync": true,
           "type": "boolean",
@@ -389,7 +397,7 @@
           "markdownDescription": "Windows: also look for Claude Code sessions inside running WSL distributions. They are read through `\\\\wsl.localhost`."
         },
         "claudeAutoShutdown.showStatusBar": {
-          "order": 18,
+          "order": 19,
           "scope": "application",
           "ignoreSync": true,
           "type": "boolean",

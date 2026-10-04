@@ -170,8 +170,11 @@ describe('unmetLanes: meters', () => {
     expect(claude?.unmet.map((unmet) => unmet.id)).toEqual(['sessionsIdle', 'quiet']);
   });
 
-  it('is not a timer while a session is working or cannot be read', () => {
-    for (const blocker of [workingSession('web-ui'), cantTellSession('scratch')]) {
+  it('is not a timer while a session is working, needs an answer or cannot be read', () => {
+    const asking = workingSession('web-ui', { turnReason: 'claudeWaiting', turnDetail: 'permission prompt' });
+    // Let go by the user (turn closed), but held by a scheduled run: still working, not quiet time.
+    const letGo = workingSession('loop', { turn: 'CLOSED', turnReason: 'claudeWaiting', why: { id: 'scheduledWakeup', inSeconds: 600 } });
+    for (const blocker of [workingSession('web-ui'), cantTellSession('scratch'), asking, letGo]) {
       const sessions = [blocker, justFinishedSession('docs')];
       const idle = check('sessionsIdle', 'waiting', { total: 2, working: 2, cantTell: 0, ignored: 0, names: [] });
       const [claude] = unmetLanes(watchingState({ sessions, checks: checksWith(idle, quiet) }));

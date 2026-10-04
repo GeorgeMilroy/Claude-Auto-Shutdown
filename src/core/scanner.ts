@@ -25,8 +25,10 @@ import {
   latest,
   newestOf,
   pendingWakeupSeconds,
+  plausibleStatusTime,
   sessionIgnoreKey,
   summariseSubagents,
+  turnFromStatus,
   unknownTurn,
   withUniqueKeys,
   type SubagentSummary,
@@ -34,7 +36,16 @@ import {
 import { Problems, errorText, isMissing, isRecord, locationKey, mapLimit, notNull } from './scannerSupport';
 import { TranscriptFinder, checkTranscript, listSubagentFiles, type TranscriptFile } from './scannerTranscripts';
 import { TurnCache } from './transcript';
-import type { ChildProcessInfo, Liveness, ScanResult, Session, SessionOrigin, StrayProcess, TurnInfo } from './types';
+import type {
+  ChildProcessInfo,
+  Liveness,
+  ScanResult,
+  Session,
+  SessionOrigin,
+  StrayProcess,
+  TurnInfo,
+  TurnReading,
+} from './types';
 import { WideSweep, accountedStrays, adoptedQuietSeconds, planBackstop, type SweptTranscript } from './wideSweep';
 
 export { isClaudeCodeProcess } from './claudeProcess';
@@ -44,6 +55,8 @@ export interface ScanRequest {
   quietSeconds: number;
   guardPatterns: readonly string[];
   waitForChildProcesses: boolean;
+  /** Keep a session Claude Code reports as waiting for the user's answer working. */
+  waitForAnswers: boolean;
   extraClaudeDirs: readonly string[];
   scanWsl: boolean;
   /** Ignore keys the user set ("don't wait for this"). */
@@ -79,6 +92,7 @@ interface Rules {
   quietSeconds: number;
   guardPatterns: string[];
   waitForChildProcesses: boolean;
+  waitForAnswers: boolean;
   extraClaudeDirs: string[];
   scanWsl: boolean;
   ignores: ReadonlySet<string>;
@@ -134,6 +148,11 @@ interface Subject {
   folder: string;
   entrypoint: string;
   startedAtMs: number | null;
+  /** What the registry entry says about its status; '' / null without one. */
+  kind: string;
+  claudeStatus: string | null;
+  waitingFor: string | null;
+  statusUpdatedAtMs: number | null;
   transcripts: TranscriptFile[];
   children: ChildProcessInfo[];
   /** How long it has to be quiet to count as finished. */
@@ -155,6 +174,7 @@ function readRules(request: unknown, problems: Problems): Rules {
     quietSeconds: quietKnown ? quiet : Infinity,
     guardPatterns: strings(raw.guardPatterns),
     waitForChildProcesses: raw.waitForChildProcesses !== false,
+    waitForAnswers: raw.waitForAnswers !== false,
     extraClaudeDirs: strings(raw.extraClaudeDirs),
     scanWsl: raw.scanWsl !== false,
     ignores: raw.ignores instanceof Set ? (raw.ignores as ReadonlySet<string>) : new Set<string>(),
@@ -464,6 +484,10 @@ export class Scanner {
         folder: folderOf(entry.cwd),
         entrypoint: entry.entrypoint,
         startedAtMs: entry.startedAtMs,
+        kind: entry.kind,
+        claudeStatus: entry.claudeStatus,
+        waitingFor: entry.waitingFor,
+        statusUpdatedAtMs: entry.statusUpdatedAtMs,
         transcripts: await this.transcripts.find(root, entry.sessionId, scan.nowMs, scan.problems),
         children: liveness === 'foreign' ? [] : (families.busyChildren.get(entry.pid) ?? []),
         quietSeconds: scan.rules.quietSeconds,
@@ -493,6 +517,10 @@ export class Scanner {
         folder: swept.project,
         entrypoint: '',
         startedAtMs: null,
+        kind: '',
+        claudeStatus: null,
+        waitingFor: null,
+        statusUpdatedAtMs: null,
         transcripts: [transcript],
         // Its stray's children are listed under the stray: which session they belong to is unknown.
         children: [],
@@ -506,11 +534,24 @@ export class Scanner {
     const { root, transcripts } = subject;
     for (const file of transcripts) scan.claimed.add(locationKey(file.path));
     const newest = newestOf(transcripts);
-    const turn = await this.turnOf(root, transcripts, newest, scan);
-    const subagents = await this.subagentsOf(root, transcripts, subject.quietSeconds, scan);
+    const reading = await this.turnOf(root, transcripts, newest, scan);
+    const { turn, source } = turnFromStatus(subject, reading, { nowMs: scan.nowMs, waitForAnswers: scan.rules.waitForAnswers });
+    const statusSinceMs = plausibleStatusTime(subject, scan.nowMs);
+    // Claude Code reports a session idle (or shell: idle with a background shell) only once none
+    // of its subagents runs any more: one whose last write is older than that was stopped with its
+    // turn, however its file ends. Not so 'waiting', which it reports while subagents still run.
+    const idleSinceMs =
+      source === 'claude' && (turn.reason === 'claudeIdle' || turn.reason === 'claudeShell') ? statusSinceMs : null;
+    const subagents = await this.subagentsOf(root, transcripts, subject.quietSeconds, idleSinceMs, scan);
     // A scheduled task lives in the session's process, so only a session with one can have it.
     const cronInSeconds = subject.origin === 'registry' ? await this.cronJobsOf(root, transcripts, scan) : null;
-    const lastActivityMs = latest([...transcripts.map((file) => file.mtimeMs), subagents.newestMtimeMs, subject.startedAtMs]);
+    // A change of Claude Code's status counts as activity: the quiet time starts again with it.
+    const lastActivityMs = latest([
+      ...transcripts.map((file) => file.mtimeMs),
+      subagents.newestMtimeMs,
+      subject.startedAtMs,
+      statusSinceMs,
+    ]);
     const silenceSeconds = this.measureSilence(subject.name, lastActivityMs, scan);
     const judgement = judgeSession({
       turn: turn.state,
@@ -520,7 +561,14 @@ export class Scanner {
       silenceSeconds,
       quietSeconds: subject.quietSeconds,
     });
-    const ignoreKey = sessionIgnoreKey(root.index, subject.pid, subject.sessionId, newest, subagents.newestMtimeMs);
+    const ignoreKey = sessionIgnoreKey(
+      root.index,
+      subject.pid,
+      subject.sessionId,
+      newest,
+      subagents.newestMtimeMs,
+      subject.statusUpdatedAtMs,
+    );
     return {
       key: subject.key,
       origin: subject.origin,
@@ -539,6 +587,11 @@ export class Scanner {
       turn: turn.state,
       turnReason: turn.reason,
       turnDetail: turn.detail,
+      kind: subject.kind,
+      claudeStatus: subject.claudeStatus,
+      waitingFor: subject.waitingFor,
+      claudeStatusSinceMs: statusSinceMs,
+      turnSource: source,
       activeSubagents: subagents.active,
       subagents: subagents.subagents,
       children: subject.children.slice(0, MAX_LISTED_CHILDREN),
@@ -548,25 +601,34 @@ export class Scanner {
     };
   }
 
+  /** Everything the session's own transcript says: its turn, its last turn record, its wake-up. */
   private async turnOf(
     root: OpenRoot,
     transcripts: readonly TranscriptFile[],
     newest: TranscriptFile | null,
     scan: ScanContext,
-  ): Promise<TurnInfo> {
-    if (newest === null) return unknownTurn('noTranscript');
+  ): Promise<TurnReading> {
+    if (newest === null) return { turn: unknownTurn('noTranscript'), activity: { kind: 'none' }, wakeupSeconds: null };
     const quietMs = scan.rules.quietSeconds * 1000;
     // One session id, two files that both changed lately: no telling which one is the conversation.
     const writtenLately = transcripts.filter((file) => !(scan.nowMs - file.mtimeMs > quietMs));
-    if (writtenLately.length >= 2) return unknownTurn('ambiguousTranscripts');
-    return this.readTurn(root, newest, true, scan);
+    if (writtenLately.length >= 2) {
+      return { turn: unknownTurn('ambiguousTranscripts'), activity: { kind: 'untimed' }, wakeupSeconds: null };
+    }
+    scan.turnPaths.add(newest.path);
+    try {
+      return await root.fs.guard(() => this.turns.getReading(newest.path, newest.size, newest.mtimeMs, { mainThread: true }));
+    } catch (error) {
+      scan.problems.add(`Couldn't read the transcript ${newest.path}: ${errorText(error)}.`);
+      return { turn: unknownTurn('cannotRead', errorText(error)), activity: { kind: 'untimed' }, wakeupSeconds: null };
+    }
   }
 
-  /** `mainThread`: the session's own transcript rather than a subagent's. */
-  private async readTurn(root: OpenRoot, file: TranscriptFile, mainThread: boolean, scan: ScanContext): Promise<TurnInfo> {
+  /** The turn of a subagent's own transcript. */
+  private async readSubagentTurn(root: OpenRoot, file: TranscriptFile, scan: ScanContext): Promise<TurnInfo> {
     scan.turnPaths.add(file.path);
     try {
-      return await root.fs.guard(() => this.turns.get(file.path, file.size, file.mtimeMs, { mainThread }));
+      return await root.fs.guard(() => this.turns.get(file.path, file.size, file.mtimeMs, { mainThread: false }));
     } catch (error) {
       scan.problems.add(`Couldn't read the transcript ${file.path}: ${errorText(error)}.`);
       return unknownTurn('cannotRead', errorText(error));
@@ -578,10 +640,11 @@ export class Scanner {
     root: OpenRoot,
     transcripts: readonly TranscriptFile[],
     quietSeconds: number,
+    idleSinceMs: number | null,
     scan: ScanContext,
   ): Promise<SubagentSummary> {
     const files = (await Promise.all(transcripts.map((file) => listSubagentFiles(root.fs, file.path, scan.problems)))).flat();
-    return summariseSubagents(files, (file) => this.readTurn(root, file, false, scan), scan.nowMs, quietSeconds);
+    return summariseSubagents(files, (file) => this.readSubagentTurn(root, file, scan), scan.nowMs, quietSeconds, idleSinceMs);
   }
 
   /**

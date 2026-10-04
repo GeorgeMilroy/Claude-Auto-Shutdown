@@ -299,6 +299,7 @@ export const DEFAULT_REQUEST: ScanRequest = {
   quietSeconds: 300,
   guardPatterns: [],
   waitForChildProcesses: false,
+  waitForAnswers: true,
   extraClaudeDirs: [],
   scanWsl: false,
   ignores: new Set(),

@@ -6,8 +6,10 @@
 // only what was appended to it.
 //
 // A task lives in the memory of the Claude process that made it and is gone when that process
-// ends, so only a session whose process is alive is asked about. Blocking-only: a pending task can
-// make a session count as working, never the other way round.
+// ends, so only a session whose process is alive is asked about. A conversation that is resumed
+// gets its tasks back (Claude Code makes them again from the transcript), so a task made by an
+// earlier process still counts. Blocking-only: a pending task can make a session count as
+// working, never the other way round.
 
 import * as fs from 'node:fs';
 
@@ -27,6 +29,10 @@ const DEFAULT_MAX_LINE_BYTES = 16 * 1024 * 1024;
 const SEAM_BYTES = 64;
 /** Recurring tasks expire after 7 days, firing a last time up to 15 minutes late (jitter). */
 const TASK_LIFETIME_MS = 7 * 86_400_000 + 15 * 60_000;
+/** A one-shot may fire this late (jitter) before it is gone for good. */
+const ONE_SHOT_GRACE_MS = 15 * 60_000;
+/** Claude Code accepts a one-shot whose cron matches within the next year, and never ages it out. */
+const ONE_SHOT_HORIZON_MS = 366 * 86_400_000;
 const MAX_ANSWER_CHARS = 2000;
 const MAX_ID_CHARS = 128;
 /** Calls whose answer never came: kept to match a late answer, but not without end. */
@@ -44,6 +50,11 @@ interface TaskCreated {
   /** When the call was made: the record's timestamp, else the file's write time when it was read. */
   atMs: number;
   cron: string | null;
+  /**
+   * false only for a task made with recurring: false (a one-shot reminder): it fires once, at its
+   * first match after it was made, and then deletes itself. Claude Code's default is true.
+   */
+  recurring: boolean;
   /** The tool's answer; null until it has been read. */
   answer: string | null;
   /** The answer names an id: then only a CronDelete naming that id ends the task. */
@@ -172,7 +183,15 @@ function noteCall(scan: FileScan, block: unknown, atMs: number): void {
   const input = isObject(block.input) ? block.input : {};
   let event: TaskEvent;
   if (block.name === CREATE_TOOL) {
-    event = { kind: 'create', atMs, cron: typeof input.cron === 'string' ? input.cron : null, answer: null, idKnown: false, failed: false };
+    event = {
+      kind: 'create',
+      atMs,
+      cron: typeof input.cron === 'string' ? input.cron : null,
+      recurring: input.recurring !== false,
+      answer: null,
+      idKnown: false,
+      failed: false,
+    };
   } else if (block.name === DELETE_TOOL) {
     event = { kind: 'delete', id: taskIdOf(input.id), done: false };
   } else {
@@ -232,7 +251,7 @@ function drop(scan: FileScan, piece: Buffer, fallbackMs: number): void {
   const seen = Buffer.concat([scan.droppedTail, piece]);
   if (!scan.droppedCreate && seen.includes(CREATE_MARK)) {
     scan.droppedCreate = true;
-    scan.events.push({ kind: 'create', atMs: fallbackMs, cron: null, answer: null, idKnown: false, failed: false });
+    scan.events.push({ kind: 'create', atMs: fallbackMs, cron: null, recurring: true, answer: null, idKnown: false, failed: false });
   }
   scan.droppedTail = lastBytes(Buffer.alloc(0), seen, CREATE_MARK.length - 1);
 }
@@ -294,13 +313,25 @@ function pendingTasks(events: readonly TaskEvent[]): TaskCreated[] {
 /** Seconds until the soonest firing (0 when it cannot be worked out); null = nothing pending. */
 function soonestFiring(tasks: readonly TaskCreated[], nowMs: number): number | null {
   let soonest: number | null = null;
+  const note = (seconds: number): void => {
+    soonest = soonest === null ? seconds : Math.min(soonest, seconds);
+  };
   for (const task of tasks) {
+    if (!task.recurring && task.cron !== null) {
+      // A one-shot fires at its first match, however far ahead, and then deletes itself: it has
+      // no lifetime. Once that match is past (plus its jitter) it is gone.
+      const firstMs = nextCronFire(task.cron, task.atMs, task.atMs + ONE_SHOT_HORIZON_MS);
+      if (firstMs !== null) {
+        if (firstMs + ONE_SHOT_GRACE_MS > nowMs) note(Math.max(0, Math.ceil((firstMs - nowMs) / 1000)));
+        continue;
+      }
+      // A first match that cannot be worked out: judged like any task below.
+    }
     const endsAtMs = task.atMs + TASK_LIFETIME_MS;
     // Only a real end in the past ends a task; an end that cannot be computed does not.
     if (Number.isFinite(endsAtMs) && endsAtMs <= nowMs) continue;
     const firesAtMs = task.cron === null ? null : nextCronFire(task.cron, nowMs, endsAtMs);
-    const seconds = firesAtMs === null ? 0 : Math.max(0, Math.ceil((firesAtMs - nowMs) / 1000));
-    soonest = soonest === null ? seconds : Math.min(soonest, seconds);
+    note(firesAtMs === null ? 0 : Math.max(0, Math.ceil((firesAtMs - nowMs) / 1000)));
   }
   return soonest;
 }

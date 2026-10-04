@@ -2,13 +2,15 @@
 // and decides the TURN STATE - the single most important signal: during /compact or an API
 // rate-limit wait the file is frozen for minutes while the session is very much alive.
 //
-// A transcript is untrusted input: every record is `unknown` until checked. Exactly one shape is
-// ever CLOSED (an assistant record with stop_reason end_turn / stop_sequence); whatever else the
-// tail holds ends as OPEN or UNKNOWN, and both keep the PC on.
+// A transcript is untrusted input: every record is `unknown` until checked. One shape closes any
+// turn: an assistant record with stop_reason end_turn / stop_sequence. In a session's own
+// transcript, three records Claude Code writes when the main thread stops otherwise close it too:
+// the Esc marker, a declined permission that ends the turn, and the output of a local command.
+// Whatever else the tail holds ends as OPEN or UNKNOWN, and both keep the PC on.
 
 import * as fs from 'node:fs';
 
-import type { TranscriptEvent, TurnInfo, TurnReason, TurnState } from './types';
+import type { TranscriptEvent, TurnActivity, TurnInfo, TurnReading, TurnReason, TurnState } from './types';
 
 const DEFAULT_INITIAL_BYTES = 256 * 1024;
 const DEFAULT_LIMIT_BYTES = 16 * 1024 * 1024;
@@ -101,6 +103,89 @@ function isConversationRecord(record: JsonObject): boolean {
   return typeof record.type === 'string' && DECISIVE_RECORD_TYPES.has(record.type);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Records Claude Code writes for the session rather than for a turn
+// ---------------------------------------------------------------------------------------------
+
+/** The text of Claude Code's Esc marker. It is always a one-block array; a typed prompt is a string. */
+const INTERRUPT_MARKERS: ReadonlySet<string> = new Set([
+  '[Request interrupted by user]',
+  '[Request interrupted by user for tool use]',
+]);
+const LOCAL_COMMAND_CAVEAT = '<local-command-caveat>';
+/** What a local command printed: it ran without the model. */
+const LOCAL_COMMAND_OUTPUT = ['<local-command-stdout>', '<local-command-stderr>'];
+/** Openings of user records Claude Code also writes while the session is idle. */
+const IDLE_OPENINGS = [
+  LOCAL_COMMAND_CAVEAT,
+  '<command-name>',
+  ...LOCAL_COMMAND_OUTPUT,
+  '<bash-input>',
+  '<bash-stdout>',
+  '<bash-stderr>',
+];
+
+/** The text a user record opens with: the whole string, or its first block when that is text. */
+function openingText(content: unknown): string {
+  if (typeof content === 'string') return content.trimStart();
+  if (!Array.isArray(content)) return '';
+  const first: unknown = content[0];
+  return isObject(first) && first.type === 'text' && typeof first.text === 'string' ? first.text.trimStart() : '';
+}
+
+function opensWith(record: JsonObject, openings: readonly string[]): boolean {
+  if (record.type !== 'user') return false;
+  const text = openingText(messageOf(record).content);
+  return openings.some((opening) => text.startsWith(opening));
+}
+
+function isInterruptMarker(record: JsonObject): boolean {
+  if (record.type !== 'user') return false;
+  const content = messageOf(record).content;
+  if (!Array.isArray(content) || content.length !== 1) return false;
+  const block: unknown = content[0];
+  return isObject(block) && block.type === 'text' && typeof block.text === 'string' && INTERRUPT_MARKERS.has(block.text);
+}
+
+/** The answer to a declined permission when Claude Code ends the turn with it. */
+function isTurnEndingDenial(record: JsonObject): boolean {
+  return record.type === 'user' && record.toolDenialEndsTurn === true && hasToolResult(messageOf(record).content);
+}
+
+/** Written before a local command's own records; it says nothing at all about the turn. */
+function isLocalCommandCaveat(record: JsonObject): boolean {
+  return opensWith(record, [LOCAL_COMMAND_CAVEAT]);
+}
+
+/**
+ * Written while the session is idle as well as during a turn, so it proves no turn: a local
+ * command, a `!` shell line, the Esc marker, a declined permission. A prompt, a reply, a tool call
+ * or a tool result is only ever written during a turn - and so is a meta record: every firing of a
+ * /loop wake-up or a scheduled task is a meta prompt. Strict on purpose: a record wrongly taken
+ * for one of these could hide a turn.
+ */
+function writtenWhileIdle(record: JsonObject): boolean {
+  if (record.isCompactSummary) return false;
+  return isInterruptMarker(record) || isTurnEndingDenial(record) || opensWith(record, IDLE_OPENINGS);
+}
+
+/**
+ * How the main thread stops besides an end_turn reply. A subagent stopped this way may still be
+ * resumed (parked, sent to the background), so a subagent's records never close a turn like this.
+ */
+function mainThreadEnding(record: JsonObject): TurnInfo | null {
+  if (record.isCompactSummary) return null;
+  if (isInterruptMarker(record)) return turnInfo('CLOSED', 'interrupted');
+  if (isTurnEndingDenial(record)) return turnInfo('CLOSED', 'toolDeclined');
+  if (opensWith(record, LOCAL_COMMAND_OUTPUT)) return turnInfo('CLOSED', 'localCommand');
+  return null;
+}
+
+function timeOf(value: unknown): number | null {
+  const ms = typeof value === 'string' ? Date.parse(value) : NaN;
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /**
  * A subagent's record carried inside the main transcript. Any truthy value counts: taking a
  * main-thread record for a subagent's can only keep the PC on.
@@ -131,6 +216,8 @@ interface Tail {
   newestFirst: string[];
   /** The file has content and its last byte is not '\n'. */
   tornEnd: boolean;
+  /** The window does not reach the start of the file: older lines exist. */
+  truncated: boolean;
 }
 
 interface ParsedLine {
@@ -187,13 +274,13 @@ export async function readRange(handle: fs.promises.FileHandle, from: number, to
  * model just got a result and is working on it". Rejects on any fs error.
  *
  * `size` is the file size the search worked on: bytes appended after the handle was opened are
- * not looked at.
+ * not looked at. `complete`: the whole file was looked at.
  */
 async function searchTail<T>(
   path: string,
   options: ReadTurnOptions | undefined,
   inspect: (tail: Tail) => T | null,
-): Promise<{ found: T | null; size: number }> {
+): Promise<{ found: T | null; size: number; complete: boolean }> {
   const initialBytes = positiveInt(options?.initialBytes, DEFAULT_INITIAL_BYTES);
   const limitBytes = Math.max(initialBytes, positiveInt(options?.limitBytes, DEFAULT_LIMIT_BYTES));
   const handle = await fs.promises.open(path, 'r');
@@ -210,8 +297,9 @@ async function searchTail<T>(
       const found = inspect({
         newestFirst: completeLines(bytes, start > 0),
         tornEnd: bytes.length > 0 && bytes[bytes.length - 1] !== NEWLINE,
+        truncated: start > 0,
       });
-      if (found !== null || start === 0 || windowBytes >= limitBytes) return { found, size };
+      if (found !== null || start === 0 || windowBytes >= limitBytes) return { found, size, complete: start === 0 };
     }
   } finally {
     // What was read stays valid even if the close fails.
@@ -244,39 +332,69 @@ function lastWakeupDelay(content: unknown): number | null {
 
 /**
  * A session that ended its turn but scheduled its own wake-up (/loop) is not finished. Looks
- * through the final turn - from its closing record back to the prompt that started it - for the
+ * through the final turn - from its deciding record back to the prompt that started it - for the
  * last ScheduleWakeup call. Blocking-only: it can make a CLOSED turn count as working, never the
  * other way round.
  */
 function wakeupInFinalTurn(newestFirst: readonly string[], mainThread: boolean): number | null {
+  let inTurn = false;
   for (const line of newestFirst) {
     const { record } = parseLine(line);
     // A subagent's prompt is not the prompt that started the main thread's turn.
     if (record === null || (mainThread && isSidechain(record))) continue;
+    // A local command, a `!` line or an Esc after the final turn's last reply started no new
+    // turn: the wake-up that turn scheduled still stands. Inside the turn they are not looked past.
+    if (!inTurn && writtenWhileIdle(record)) continue;
     const content = messageOf(record).content;
-    // A prompt (a user record that is not a tool result) started this turn; anything older
-    // belongs to an earlier turn, whose wake-up has fired or been replaced since.
+    // A prompt (a user record that is not a tool result: typed, a command, or the meta prompt of
+    // a wake-up firing) started this turn; anything older belongs to an earlier turn, whose
+    // wake-up has fired or been replaced since.
     if (record.type === 'user' && !hasToolResult(content)) return null;
     if (record.type !== 'assistant') continue;
+    inTurn = true;
     const delay = lastWakeupDelay(content);
     if (delay !== null) return delay;
   }
   return null;
 }
 
-function turnInTail(tail: Tail, mainThread: boolean): TurnInfo | null {
+/** The newest record only a turn writes, as far as the window reaches. */
+function activityInTail(tail: Tail): TurnActivity {
+  for (const line of tail.newestFirst) {
+    const { record } = parseLine(line);
+    if (record === null || !isConversationRecord(record) || writtenWhileIdle(record)) continue;
+    const ms = timeOf(record.timestamp);
+    return ms === null ? { kind: 'untimed' } : { kind: 'at', ms };
+  }
+  // The lines before the window may hold one.
+  return tail.truncated ? { kind: 'untimed' } : { kind: 'none' };
+}
+
+/** A write in progress: what it will say, and when, is not known yet. */
+const BEING_WRITTEN: TurnReading = {
+  turn: turnInfo('OPEN', 'recordBeingWritten'),
+  activity: { kind: 'untimed' },
+  wakeupSeconds: null,
+};
+
+function turnInTail(tail: Tail, mainThread: boolean): TurnReading | null {
   // A record is appended as one line ending in '\n'. No final newline = the write is in progress.
-  if (tail.tornEnd) return turnInfo('OPEN', 'recordBeingWritten');
+  if (tail.tornEnd) return copyReading(BEING_WRITTEN);
   for (const [index, line] of tail.newestFirst.entries()) {
     const { valid, record } = parseLine(line);
     // Only the newest line can be a record caught mid-write. Skipping it would let the record
     // before it decide - possibly a CLOSED one, while a new turn is already being written.
-    if (!valid && index === 0) return turnInfo('OPEN', 'recordBeingWritten');
-    if (record === null || !isConversationRecord(record)) continue;
-    const turn = classifyRecord(record);
-    if (turn.state !== 'CLOSED') return turn;
-    if (mainThread && isSidechain(record)) continue;
-    return { ...turn, scheduledWakeupSeconds: wakeupInFinalTurn(tail.newestFirst.slice(index), mainThread) };
+    if (!valid && index === 0) return copyReading(BEING_WRITTEN);
+    if (record === null || !isConversationRecord(record) || isLocalCommandCaveat(record)) continue;
+    const ending = mainThread && !isSidechain(record) ? mainThreadEnding(record) : null;
+    const turn = ending ?? classifyRecord(record);
+    if (turn.state === 'CLOSED' && mainThread && isSidechain(record)) continue;
+    const wakeupSeconds = wakeupInFinalTurn(tail.newestFirst.slice(index), mainThread);
+    return {
+      turn: turn.state === 'CLOSED' ? { ...turn, scheduledWakeupSeconds: wakeupSeconds } : turn,
+      activity: activityInTail(tail),
+      wakeupSeconds,
+    };
   }
   return null;
 }
@@ -298,18 +416,27 @@ function turnForReadError(error: unknown): TurnInfo {
 }
 
 interface TurnSnapshot {
-  turn: TurnInfo;
+  reading: TurnReading;
   /** Size of the file the turn was read from; null when it could not be read. */
   size: number | null;
+}
+
+/** Every caller gets its own object: nothing done to it can change a cached answer. */
+function copyReading(reading: TurnReading): TurnReading {
+  return { turn: { ...reading.turn }, activity: { ...reading.activity }, wakeupSeconds: reading.wakeupSeconds };
 }
 
 async function readTurnSnapshot(path: string, options: ReadTurnOptions | undefined): Promise<TurnSnapshot> {
   try {
     const mainThread = options?.mainThread === true;
-    const { found, size } = await searchTail(path, options, (tail) => turnInTail(tail, mainThread));
-    return { turn: found ?? turnInfo('UNKNOWN', 'noConversationRecord'), size };
+    const { found, size, complete } = await searchTail(path, options, (tail) => turnInTail(tail, mainThread));
+    if (found !== null) return { reading: found, size };
+    const activity: TurnActivity = complete ? { kind: 'none' } : { kind: 'untimed' };
+    return { reading: { turn: turnInfo('UNKNOWN', 'noConversationRecord'), activity, wakeupSeconds: null }, size };
   } catch (error) {
-    return { turn: turnForReadError(error), size: null };
+    const turn = turnForReadError(error);
+    const activity: TurnActivity = turn.reason === 'noTranscript' ? { kind: 'none' } : { kind: 'untimed' };
+    return { reading: { turn, activity, wakeupSeconds: null }, size: null };
   }
 }
 
@@ -320,7 +447,12 @@ async function readTurnSnapshot(path: string, options: ReadTurnOptions | undefin
  * parse, is OPEN 'recordBeingWritten'.
  */
 export async function readTurn(path: string, options?: ReadTurnOptions): Promise<TurnInfo> {
-  return (await readTurnSnapshot(path, options)).turn;
+  return (await readTurnSnapshot(path, options)).reading.turn;
+}
+
+/** readTurn, plus when the session last worked and the wake-up of its final turn. Never rejects. */
+export async function readTurnReading(path: string, options?: ReadTurnOptions): Promise<TurnReading> {
+  return (await readTurnSnapshot(path, options)).reading;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -330,39 +462,38 @@ export async function readTurn(path: string, options?: ReadTurnOptions): Promise
 interface CachedTurn {
   size: number;
   mtimeMs: number;
-  turn: Promise<TurnInfo>;
-}
-
-/** Every caller gets its own object: nothing done to it can change a cached answer. */
-function copyOf(turn: Promise<TurnInfo>): Promise<TurnInfo> {
-  return turn.then((info) => ({ ...info }));
+  reading: Promise<TurnReading>;
 }
 
 /**
- * Caches readTurn() by (path, size, mtimeMs) so an unchanged transcript is not re-read every
- * poll. `prune` drops entries for paths that are no longer of interest. `options` only matter
- * when the file is actually read.
+ * Caches readTurnReading() by (path, size, mtimeMs) so an unchanged transcript is not re-read
+ * every poll. `prune` drops entries for paths that are no longer of interest. `options` only
+ * matter when the file is actually read.
  */
 export class TurnCache {
   private readonly entries = new Map<string, CachedTurn>();
 
   get(path: string, size: number, mtimeMs: number, options?: ReadTurnOptions): Promise<TurnInfo> {
+    return this.getReading(path, size, mtimeMs, options).then((reading) => reading.turn);
+  }
+
+  getReading(path: string, size: number, mtimeMs: number, options?: ReadTurnOptions): Promise<TurnReading> {
     const cached = this.entries.get(path);
-    if (cached !== undefined && cached.size === size && cached.mtimeMs === mtimeMs) return copyOf(cached.turn);
+    if (cached !== undefined && cached.size === size && cached.mtimeMs === mtimeMs) return cached.reading.then(copyReading);
 
     const entry: CachedTurn = {
       size,
       mtimeMs,
-      turn: readTurnSnapshot(path, options).then((snapshot) => {
+      reading: readTurnSnapshot(path, options).then((snapshot) => {
         // Keep an answer only when it describes the file exactly as the caller saw it. A failed
         // read may succeed next poll (a sharing violation, a network path), and a file that has
         // changed size since the caller's stat is not the file this key stands for.
         if (snapshot.size !== size && this.entries.get(path) === entry) this.entries.delete(path);
-        return snapshot.turn;
+        return snapshot.reading;
       }),
     };
     this.entries.set(path, entry);
-    return copyOf(entry.turn);
+    return entry.reading.then(copyReading);
   }
 
   prune(keep: ReadonlySet<string>): void {

@@ -11,7 +11,9 @@ import type {
   SessionWhy,
   SubagentInfo,
   TurnInfo,
+  TurnReading,
   TurnReason,
+  TurnSource,
   TurnState,
 } from './types';
 
@@ -26,6 +28,11 @@ const MAX_LISTED_SUBAGENTS = 20;
 const TURN_READ_CONCURRENCY = 8;
 /** Slack after a scheduled wake-up is due, for the session to actually start writing again. */
 const WAKEUP_GRACE_MS = 120_000;
+/**
+ * A status time and the times of the transcripts come from the same clock, and the records
+ * Claude Code writes while a turn is being stopped are flushed within moments of the status.
+ */
+const STATUS_ACTIVITY_SLACK_MS = 2000;
 
 export function unknownTurn(reason: TurnReason, detail: string | null = null): TurnInfo {
   return { state: 'UNKNOWN', reason, detail, scheduledWakeupSeconds: null };
@@ -65,20 +72,29 @@ export interface SubagentSummary {
  * A subagent counts as working when it wrote recently, or when its own turn is not finished and
  * its last write is inside the open-turn horizon. Turns are only read inside that horizon: older
  * files cannot count either way, and a workflow leaves hundreds of them behind.
+ *
+ * `idleSinceMs`: Claude Code reported the session idle at that time, which it does only once no
+ * subagent of it runs. An unfinished turn then counts only in a file written more than 2 s after
+ * it; a file that ends unfinished before then belongs to a subagent stopped with its session's
+ * turn (whose last records are flushed a moment after the status).
  */
 export async function summariseSubagents(
   files: readonly SubagentFile[],
   turnOf: (file: SubagentFile) => Promise<TurnInfo>,
   nowMs: number,
   quietSeconds: number,
+  idleSinceMs: number | null = null,
 ): Promise<SubagentSummary> {
   const recentMs = Math.max(SUBAGENT_RECENT_SECONDS, quietSeconds) * 1000;
   const subagents = await mapLimit(files, TURN_READ_CONCURRENCY, async (file): Promise<SubagentInfo> => {
     const ageMs = nowMs - file.mtimeMs;
     const withinHorizon = !isOlderThan(ageMs, SUBAGENT_OPEN_TURN_HORIZON_MS);
     const turn: TurnState = withinHorizon ? (await turnOf(file)).state : 'UNKNOWN';
+    // Only a real write time before a real idle time lets an unfinished turn go.
+    const stoppedBeforeIdle =
+      idleSinceMs !== null && Number.isFinite(idleSinceMs) && file.mtimeMs <= idleSinceMs + STATUS_ACTIVITY_SLACK_MS;
     // A turn that could not be read is not a finished one.
-    const active = !isOlderThan(ageMs, recentMs) || (withinHorizon && turn !== 'CLOSED');
+    const active = !isOlderThan(ageMs, recentMs) || (withinHorizon && turn !== 'CLOSED' && !stoppedBeforeIdle);
     return { name: file.name, path: file.path, mtimeMs: file.mtimeMs, turn, active };
   });
   subagents.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.path < b.path ? -1 : 1));
@@ -99,6 +115,101 @@ export function pendingWakeupSeconds(turn: TurnInfo, transcript: TranscriptFile 
   const dueInMs = transcript.mtimeMs + delay * 1000 - nowMs;
   if (Number.isFinite(dueInMs) && dueInMs + WAKEUP_GRACE_MS <= 0) return null;
   return Number.isFinite(dueInMs) ? Math.max(0, Math.round(dueInMs / 1000)) : 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Claude Code's own status
+// ---------------------------------------------------------------------------------------------
+
+/** What the session's registry entry says about it. */
+export interface StatusFacts {
+  kind: string;
+  claudeStatus: string | null;
+  waitingFor: string | null;
+  statusUpdatedAtMs: number | null;
+  startedAtMs: number | null;
+}
+
+export interface StatusRules {
+  nowMs: number;
+  /** Keep a session that waits for the user's answer working. Only an explicit false lets it go. */
+  waitForAnswers: boolean;
+}
+
+export interface EffectiveTurn {
+  turn: TurnInfo;
+  source: TurnSource;
+}
+
+/** Beyond this a status time is not the time of a change of this session's status. */
+const STATUS_TIME_TOLERANCE_MS = 60_000;
+/** Transcript states that leave nothing to check a status against: there is no conversation yet. */
+const NOTHING_TO_CHECK: ReadonlySet<TurnReason> = new Set<TurnReason>(['noTranscript', 'noConversationRecord']);
+
+function statusTurn(state: TurnState, reason: TurnReason, detail: string | null = null): TurnInfo {
+  return { state, reason, detail, scheduledWakeupSeconds: null };
+}
+
+/**
+ * When Claude Code's status last changed, or null when that time is not a plausible one: absent,
+ * in the future, or from before the session's process started.
+ */
+export function plausibleStatusTime(status: Pick<StatusFacts, 'statusUpdatedAtMs' | 'startedAtMs'>, nowMs: number): number | null {
+  const at = status.statusUpdatedAtMs;
+  if (at === null || !Number.isFinite(at)) return null;
+  if (!Number.isFinite(nowMs) || at > nowMs + STATUS_TIME_TOLERANCE_MS) return null;
+  const started = status.startedAtMs;
+  if (started !== null && Number.isFinite(started) && at < started - STATUS_TIME_TOLERANCE_MS) return null;
+  return at;
+}
+
+/**
+ * May a status that says "not working" close the turn? Only when everything that could contradict
+ * it was looked at and does not: the session is an interactive one, the time of the status is
+ * plausible, the transcript could be read, and it holds no record that only a turn writes from
+ * after the status. A missed status write is only logged by Claude Code, so a turn record from
+ * after "idle" proves the status is stale.
+ */
+function statusMayClose(status: StatusFacts, reading: TurnReading, nowMs: number): boolean {
+  // Background agents and daemons have other lifecycles; their status is not checked here.
+  if (status.kind !== '' && status.kind !== 'interactive') return false;
+  const since = plausibleStatusTime(status, nowMs);
+  if (since === null) return false;
+  const { turn, activity } = reading;
+  if (turn.state === 'UNKNOWN' && !NOTHING_TO_CHECK.has(turn.reason)) return false;
+  if (turn.reason === 'recordBeingWritten') return false;
+  if (activity.kind === 'none') return true;
+  return activity.kind === 'at' && activity.ms <= since + STATUS_ACTIVITY_SLACK_MS;
+}
+
+/**
+ * The turn as Claude Code's own status tells it, falling back to the transcript's reading.
+ * Fail-closed like everything else: "busy" and "waiting" keep the turn open whatever the
+ * transcript says; "idle" closes it only when nothing contradicts it; a status word this version
+ * does not know is "can't tell"; no status at all leaves the transcript to decide.
+ */
+export function turnFromStatus(status: StatusFacts, reading: TurnReading, rules: StatusRules): EffectiveTurn {
+  const fromTranscript: EffectiveTurn = { turn: reading.turn, source: 'transcript' };
+  const closeAs = (reason: TurnReason, detail: string | null = null): EffectiveTurn => {
+    if (!statusMayClose(status, reading, rules.nowMs)) return fromTranscript;
+    // The wake-up of the final turn, whatever the transcript made of the turn itself.
+    return { turn: { state: 'CLOSED', reason, detail, scheduledWakeupSeconds: reading.wakeupSeconds }, source: 'claude' };
+  };
+  switch (status.claudeStatus) {
+    case null:
+      return fromTranscript;
+    case 'busy':
+      return { turn: statusTurn('OPEN', 'claudeBusy'), source: 'claude' };
+    case 'waiting':
+      if (rules.waitForAnswers !== false) return { turn: statusTurn('OPEN', 'claudeWaiting', status.waitingFor), source: 'claude' };
+      return closeAs('claudeWaiting', status.waitingFor);
+    case 'idle':
+      return closeAs('claudeIdle');
+    case 'shell':
+      return closeAs('claudeShell');
+    default:
+      return { turn: statusTurn('UNKNOWN', 'claudeStatusUnknown', status.claudeStatus), source: 'claude' };
+  }
 }
 
 export interface SessionFacts {
@@ -141,7 +252,8 @@ export function judgeSession(facts: SessionFacts): Judgement {
 
 /**
  * Names one state of one session: the key changes as soon as the session or one of its subagents
- * writes anything, which is what makes "don't wait for this session" expire by itself.
+ * writes anything, or Claude Code's status of it changes, which is what makes "don't wait for
+ * this session" expire by itself.
  */
 export function sessionIgnoreKey(
   rootIndex: number,
@@ -149,10 +261,12 @@ export function sessionIgnoreKey(
   sessionId: string,
   transcript: TranscriptFile | null,
   newestSubagentMtimeMs: number | null,
+  statusUpdatedAtMs: number | null,
 ): string {
   const size = transcript?.size ?? 0;
   const written = Math.floor(transcript?.mtimeMs ?? 0);
-  return `session:${rootIndex}:${pid ?? 0}:${sessionId}:${size}:${written}:${Math.floor(newestSubagentMtimeMs ?? 0)}`;
+  const subagents = Math.floor(newestSubagentMtimeMs ?? 0);
+  return `session:${rootIndex}:${pid ?? 0}:${sessionId}:${size}:${written}:${subagents}:${Math.floor(statusUpdatedAtMs ?? 0)}`;
 }
 
 /** Last segment of a working directory, whichever slash it uses; '' when there is none. */

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0
+
+- Sessions are judged by Claude Code's own status first: the `status` it writes into each session entry (busy, idle, waiting for your answer). A session that is idle no longer shows as "still working" after an Esc, a local command such as `/model`, a declined permission, or a VS Code panel that was opened and never used. Without a status (an older Claude Code), or when the transcript shows the status is out of date, the transcript decides as before.
+- The transcript itself also recognises those three endings in a session's own transcript.
+- New setting `waitForAnswers` (on by default): stay on while a session waits for your answer. Off: such a session counts as finished once quiet.
+- The dashboard says "needs your answer" for such a session instead of "still working", and shows Claude Code's status in the row details.
+- A subagent stopped together with its session's turn no longer counts as working for up to 30 minutes.
+- A one-shot reminder counts until it fires (plus 15 minutes), however many days ahead, and no longer keeps this PC on for 7 days after it fired.
+- "Don't wait for this session" now also ends when Claude Code's status of the session changes. Overrides set before this version end once, because the key that names a session's state changed.
+
 ## 0.1.0
 
 First version. A port of [kamiljan11/claude-autoshutdown](https://github.com/kamiljan11/claude-autoshutdown) (Python, MIT) to a VS Code extension, with a new interface.

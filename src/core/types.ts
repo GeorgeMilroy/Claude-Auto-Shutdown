@@ -13,7 +13,15 @@ export type TurnState = 'CLOSED' | 'OPEN' | 'UNKNOWN';
 export type TurnReason =
   // CLOSED
   | 'turnEnded' // assistant + stop_reason end_turn / stop_sequence: model answered, waits for a human
+  | 'interrupted' // main thread: Claude Code's "[Request interrupted by user]" marker (Esc)
+  | 'toolDeclined' // main thread: a declined permission, whose answer ends the turn
+  | 'localCommand' // main thread: the output of a local command (/model, /cost, ...)
+  | 'claudeIdle' // Claude Code's own status: idle
+  | 'claudeShell' // Claude Code's own status: idle, with a background shell still running
+  // OPEN, or CLOSED when the user lets such sessions go (waitForAnswers off)
+  | 'claudeWaiting' // Claude Code's own status: waiting for the user's answer (detail: what for)
   // OPEN
+  | 'claudeBusy' // Claude Code's own status: busy
   | 'toolInFlight' // assistant + stop_reason tool_use
   | 'cutAtTokenLimit' // assistant + stop_reason max_tokens
   | 'replyInProgress' // assistant with any other / missing stop_reason
@@ -22,6 +30,7 @@ export type TurnReason =
   | 'compacting' // isCompactSummary
   | 'recordBeingWritten' // file does not end in a newline, or its last line does not parse yet
   // UNKNOWN
+  | 'claudeStatusUnknown' // Claude Code's status is a word this version does not know (detail: it)
   | 'unknownRecord'
   | 'noTranscript'
   | 'cannotRead'
@@ -39,6 +48,30 @@ export interface TurnInfo {
    */
   scheduledWakeupSeconds: number | null;
 }
+
+/**
+ * When the session last did something only a turn does: the creation time of the newest
+ * conversation record that Claude Code does not also write while the session is idle (local
+ * commands, `!` shell lines, interrupt markers and declined tools are written idle).
+ * - none: there is no such record
+ * - at: its `timestamp`
+ * - untimed: its time can't be read, or the part of the file that was read can't tell
+ */
+export type TurnActivity = { kind: 'none' } | { kind: 'at'; ms: number } | { kind: 'untimed' };
+
+/** Everything one read of a transcript tail says. */
+export interface TurnReading {
+  turn: TurnInfo;
+  activity: TurnActivity;
+  /**
+   * What a ScheduleWakeup call in the final turn asked for, whatever the turn state
+   * (`turn.scheduledWakeupSeconds` is set for a CLOSED turn only). Blocking-only.
+   */
+  wakeupSeconds: number | null;
+}
+
+/** What decided a session's turn: Claude Code's own status, or its transcript. */
+export type TurnSource = 'claude' | 'transcript';
 
 /** One line of the transcript preview. */
 export interface TranscriptEvent {
@@ -69,7 +102,7 @@ export type SessionOrigin = 'registry' | 'transcript';
  * How sure we are that the registry entry's process is the session's process.
  * - verified: PID alive and its start time matches procStart
  * - unverified: PID alive but the start time could not be compared (treated as alive)
- * - foreign: the entry lives in another PID namespace (WSL, container): judged by transcript only
+ * - foreign: the entry lives in another PID namespace (WSL, container): judged by its status and transcript only (no process check)
  * - none: no process is associated (origin 'transcript')
  */
 export type Liveness = 'verified' | 'unverified' | 'foreign' | 'none';
@@ -132,13 +165,23 @@ export interface Session {
   rootLabel: string;
   startedAtMs: number | null;
   transcriptPath: string | null;
-  /** Newest write across transcript and subagents (epoch ms); null = unknown. */
+  /** Newest write across transcript and subagents, or change of Claude Code's status (epoch ms); null = unknown. */
   lastActivityMs: number | null;
   /** Seconds since lastActivityMs; null = unknown (never Infinity, never 0 as a stand-in). */
   silenceSeconds: number | null;
   turn: TurnState;
   turnReason: TurnReason;
   turnDetail: string | null;
+  /** The registry entry's kind ('interactive', 'bg', ...); '' when it has none or there is no entry. */
+  kind: string;
+  /** Claude Code's own status, raw ('busy', 'idle', 'waiting', 'shell', ...); null = none given. */
+  claudeStatus: string | null;
+  /** With 'waiting': what for ('permission prompt', ...); null otherwise. */
+  waitingFor: string | null;
+  /** When claudeStatus last changed (epoch ms), if that time is plausible; null otherwise. */
+  claudeStatusSinceMs: number | null;
+  /** What decided `turn`: Claude Code's own status, or the transcript. */
+  turnSource: TurnSource;
   activeSubagents: number;
   /** Newest first, at most 20. */
   subagents: SubagentInfo[];
@@ -148,7 +191,7 @@ export interface Session {
   /** true = this session keeps the PC on (before taking `ignored` into account). */
   working: boolean;
   why: SessionWhy;
-  /** `session:<...>` - pass to the ignore command. Changes whenever the session writes again. */
+  /** `session:<...>` - pass to the ignore command. Changes whenever the session writes again or its status changes. */
   ignoreKey: string;
   /** The user said "don't wait for this session"; void as soon as ignoreKey changes. */
   ignored: boolean;

@@ -37,7 +37,39 @@ describe('parseRegistryEntry', () => {
       entrypoint: 'cli',
       startedAtMs: 1_790_000_000_000,
       procStart: 134355037717240959n,
+      kind: 'interactive',
+      claudeStatus: null,
+      waitingFor: null,
+      statusUpdatedAtMs: null,
     });
+  });
+
+  it("reads Claude Code's own status", () => {
+    expect(
+      fieldsOf({ pid: 1, status: 'waiting', waitingFor: 'permission prompt', statusUpdatedAt: 1_791_116_115_534 }),
+    ).toMatchObject({ claudeStatus: 'waiting', waitingFor: 'permission prompt', statusUpdatedAtMs: 1_791_116_115_534 });
+  });
+
+  it('keeps a status it does not know raw, on one line and short', () => {
+    expect(fieldsOf({ pid: 1, status: '  paused  ' }).claudeStatus).toBe('paused');
+    expect(fieldsOf({ pid: 1, status: 'x'.repeat(500) }).claudeStatus).toBe('x'.repeat(32));
+    expect(fieldsOf({ pid: 1, waitingFor: 'a\n\tquestion   for you' }).waitingFor).toBe('a question for you');
+    expect(fieldsOf({ pid: 1, waitingFor: 'w'.repeat(500) }).waitingFor).toBe('w'.repeat(120));
+  });
+
+  it('turns a missing, empty or wrongly typed status into null', () => {
+    for (const status of [undefined, null, '', '   ', 7, true, ['idle'], { status: 'idle' }]) {
+      expect(fieldsOf({ pid: 1, status, waitingFor: status }), JSON.stringify(status)).toMatchObject({
+        claudeStatus: null,
+        waitingFor: null,
+      });
+    }
+  });
+
+  it('turns a statusUpdatedAt that is not a positive finite number into null', () => {
+    for (const statusUpdatedAt of ['1791116115534', -5, 0, null, true, 1e400]) {
+      expect(fieldsOf({ pid: 1, status: 'idle', statusUpdatedAt }).statusUpdatedAtMs, String(statusUpdatedAt)).toBeNull();
+    }
   });
 
   it.each([

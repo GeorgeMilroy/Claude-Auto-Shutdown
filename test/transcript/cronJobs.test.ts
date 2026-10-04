@@ -246,3 +246,51 @@ describe('CronJobs: reading', () => {
     await expect(new CronJobs().pendingSeconds(`${fx.dir}/missing.jsonl`, 0, 0, NOW)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
+
+describe('CronJobs: one-shot reminders (recurring: false)', () => {
+  const oneShot = (id: string, cron: string, atMs: number, recurring: { recurring?: unknown } = { recurring: false }): Json =>
+    call(id, 'CronCreate', { cron, prompt: 'remind me', ...recurring }, atMs);
+  /** A cron that matches once a day, `minutesFromNow` after NOW, in this machine's local time. */
+  const dailyAt = (minutesFromNow: number): string => {
+    const date = new Date(NOW + minutesFromNow * 60_000);
+    return `${date.getMinutes()} ${date.getHours()} * * *`;
+  };
+
+  it('is pending until its first match', async () => {
+    expect(await pendingIn([oneShot('c1', dailyAt(10), NOW - 60_000), made('c1', 'once1111')])).toBe(600);
+  });
+
+  it('is gone once its first match is more than 15 minutes past', async () => {
+    expect(await pendingIn([oneShot('c1', '* * * * *', NOW - 3600_000), made('c1', 'once1111')])).toBeNull();
+    expect(await pendingIn([oneShot('c1', dailyAt(-16), NOW - 20 * 60_000), made('c1', 'once1111')])).toBeNull();
+  });
+
+  it('is still due within those 15 minutes: it may fire late', async () => {
+    expect(await pendingIn([oneShot('c1', '* * * * *', NOW - 5 * 60_000), made('c1', 'once1111')])).toBe(0);
+    expect(await pendingIn([oneShot('c1', dailyAt(-14), NOW - 20 * 60_000), made('c1', 'once1111')])).toBe(0);
+  });
+
+  it('does not hide a recurring task next to it', async () => {
+    const records = [oneShot('c1', '* * * * *', NOW - 3600_000), made('c1', 'once1111'), create('c2'), made('c2', 'loop2222')];
+    expect(await pendingIn(records)).toBe(60);
+  });
+
+  it('only a real false makes a one-shot (Claude Code defaults to recurring)', async () => {
+    for (const recurring of [{}, { recurring: true }, { recurring: 'false' }, { recurring: 0 }, { recurring: null }]) {
+      const records = [oneShot('c1', '* * * * *', NOW - 3600_000, recurring), made('c1', 'loop1111')];
+      expect(await pendingIn(records), JSON.stringify(recurring)).toBe(60);
+    }
+  });
+
+  it('has no 7-day lifetime: Claude Code keeps a one-shot until it fires, however far ahead', async () => {
+    // Made 8 days ago for a match 10 days after that: still 2 days to go.
+    const madeAt = NOW - 8 * DAY_MS;
+    const match = new Date(madeAt + 10 * DAY_MS);
+    const cron = `${match.getMinutes()} ${match.getHours()} ${match.getDate()} ${match.getMonth() + 1} *`;
+    expect(await pendingIn([oneShot('c1', cron, madeAt), made('c1', 'once1111')])).toBe(2 * 86_400);
+  });
+
+  it('stays pending when its first match cannot be worked out', async () => {
+    expect(await pendingIn([oneShot('c1', 'not a cron', NOW - 3600_000), made('c1', 'once1111')])).toBe(0);
+  });
+});
